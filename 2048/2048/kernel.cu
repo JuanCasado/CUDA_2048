@@ -79,8 +79,8 @@ __global__ void fillMatrix(float *tablero, int *positions, int max_elements, int
 	}
 }
 
-__global__ void moverDeDerechaAIzquierda(float *tablero, int size) {
-	int id = threadIdx.x * size;
+__global__ void moverDeDerechaAIzquierda(float *tablero, int nc) {
+	int id = threadIdx.x * nc;
 	int i;
 	bool hay_hueco;
 	int ultimo_hueco;
@@ -97,7 +97,7 @@ __global__ void moverDeDerechaAIzquierda(float *tablero, int size) {
 		ultima_ficha_posicion = id;
 		ultimo_hueco = id;
 	}
-	for (int e = 1; e < size; ++e) {
+	for (int e = 1; e < nc; ++e) {
 		i = id + e;
 		if (tablero[i] != 0) {
 			if (tablero[i] == ultima_ficha) {
@@ -134,6 +134,47 @@ __global__ void moverDeDerechaAIzquierda(float *tablero, int size) {
 				ultimo_hueco = i;
 			}
 		}
+	}
+}
+
+__global__ void movimientoDerecha(float* tablero, int nc) {
+	int id = threadIdx.x * nc;
+	int posicion = nc - 1; //nos movemos a través de las columnas de la misma fila 
+	int comparador = nc - 2;
+	int cursor = nc - 1;
+	while (posicion >= 0 && comparador > -1) {
+		//si no se ha llegado al final y ambos números son iguales y distintos de 0 se suman 
+		if (posicion > 0 && tablero[id + posicion] == tablero[id + comparador] && tablero[id + posicion] != 0
+			&& tablero[id + comparador] != 0) {
+			int suma = tablero[id + comparador] + tablero[id + posicion];
+			tablero[id + posicion] = 0;
+			tablero[id + comparador] = 0;
+			tablero[id + cursor] = suma;
+			cursor--;
+			posicion = comparador - 1;
+			comparador -= 2;
+		}
+		//si donde nos encontramos es 0
+		else if (tablero[id + posicion] == 0) {
+			posicion--;
+			comparador--;
+		} //si el contiguo es 0
+		else if (tablero[id + comparador] == 0) {
+			comparador--;
+		}
+		else { // Ambos son diferentes de cero y diferentes entre si
+			int aux = tablero[id + posicion];
+			tablero[id + posicion] = 0;
+			tablero[id + cursor] = aux;
+			cursor--;
+			posicion = comparador;
+			comparador--;
+		}
+	}
+	if (posicion >= 0) {
+		int aux = tablero[id + posicion];
+		tablero[id + posicion] = 0;
+		tablero[id + cursor] = aux;
 	}
 }
 
@@ -208,16 +249,35 @@ int main(int argc, char **argv) {
 	tablero_h = (float*)malloc(size_elementos);
 	cudaMalloc((void **)&tablero_d, size_elementos);
 	fillMatrix <<<1, n_elementos_pow2, 1>>> (tablero_d, random_d, n_elementos, elementos_iniciales, static_cast<int>(floor(elementos_iniciales/3)));
-	check_CUDA_Error("FILL_MATRIX");
-	cudaMemcpy(tablero_h, tablero_d, size_elementos, cudaMemcpyDeviceToHost);
-	printTablero(tablero_h, n_filas, n_columnas);
-	std::cout << "---------------------" << std::endl;
-
-	moverDeDerechaAIzquierda <<<1, n_filas, 1 >>> (tablero_d, n_columnas);
-	check_CUDA_Error("MOVER");
-	cudaMemcpy(tablero_h, tablero_d, size_elementos, cudaMemcpyDeviceToHost);
-	printTablero(tablero_h, n_filas, n_columnas);
 	cudaFree(random_d);
+	check_CUDA_Error("FILL_MATRIX");
+
+	char movement_to_perform;
+	do {
+		cudaMemcpy(tablero_h, tablero_d, size_elementos, cudaMemcpyDeviceToHost);
+		std::cout << "---------------------" << std::endl;
+		printTablero(tablero_h, n_filas, n_columnas);
+		std::cout << "{wasd->movement;e->exit}: ";
+		std::cin >> movement_to_perform;
+		switch (movement_to_perform){
+		case 'w':
+			
+			break;
+		case 'a':
+			moverDeDerechaAIzquierda << <1, n_filas, 1 >> > (tablero_d, n_columnas);
+			break;
+		case 's':
+			
+			break;
+		case 'd':
+			movimientoDerecha <<<1, n_filas, 1 >>> (tablero_d, n_columnas);
+			break;
+		default:
+			movement_to_perform = 'e';
+			break;
+		}
+		check_CUDA_Error("MOVER");
+	} while (movement_to_perform!='e');
 
 	getchar(); //se cierra la ventana si no pongo esto. 
 	free(tablero_h);
