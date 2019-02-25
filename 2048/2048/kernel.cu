@@ -135,7 +135,6 @@ __global__ void moverDeIzquierdaADerecha(float *tablero, int nc) {
 	int ultima_ficha_posicion = id;
 	for (int e = 1; e < nc; ++e) {
 		i = id - e;
-		printf("id: %d\n", i);
 		if (tablero[i] != 0) {
 			if (tablero[i] == ultima_ficha) {
 				tablero[ultima_ficha_posicion] = ultima_ficha * 2;
@@ -174,48 +173,99 @@ __global__ void moverDeIzquierdaADerecha(float *tablero, int nc) {
 	}
 }
 
-
-__global__ void movimientoDerecha(float* tablero, int nc) {
-	int id = threadIdx.x * nc;
-	int posicion = nc - 1; //nos movemos a través de las columnas de la misma fila 
-	int comparador = nc - 2;
-	int cursor = nc - 1;
-	while (posicion >= 0 && comparador > -1) {
-		//si no se ha llegado al final y ambos números son iguales y distintos de 0 se suman 
-		if (posicion > 0 && tablero[id + posicion] == tablero[id + comparador] && tablero[id + posicion] != 0
-			&& tablero[id + comparador] != 0) {
-			int suma = tablero[id + comparador] + tablero[id + posicion];
-			tablero[id + posicion] = 0;
-			tablero[id + comparador] = 0;
-			tablero[id + cursor] = suma;
-			cursor--;
-			posicion = comparador - 1;
-			comparador -= 2;
+__global__ void moverDeAbajoAArriba(float *tablero, int nc, int nf) {
+	int id = threadIdx.x;
+	int i;
+	bool hay_hueco = (tablero[id] == 0);
+	int ultimo_hueco = id;
+	float ultima_ficha = hay_hueco ? 0 : tablero[id];
+	int ultima_ficha_posicion = id;
+	for (int e = 1; e < nf; ++e) {
+		i = id + nc*e;
+		if (tablero[i] != 0) {
+			if (tablero[i] == ultima_ficha) {
+				tablero[ultima_ficha_posicion] = ultima_ficha * 2;
+				ultima_ficha = 0;
+				hay_hueco = true;
+				ultimo_hueco = ultima_ficha_posicion + nc;
+				if (i != ultima_ficha_posicion) {
+					tablero[i] = 0;
+				}
+			}
+			else {
+				if (hay_hueco) {
+					tablero[ultimo_hueco] = tablero[i];
+					ultima_ficha = tablero[i];
+					ultima_ficha_posicion = ultimo_hueco;
+					hay_hueco = (ultimo_hueco <= i);
+					if (i != ultimo_hueco) {
+						tablero[i] = 0;
+					}
+					ultimo_hueco += nc;
+				}
+				else {
+					ultima_ficha = tablero[i];
+					ultima_ficha_posicion = i;
+					ultimo_hueco = i;
+					hay_hueco = false;
+				}
+			}
 		}
-		//si donde nos encontramos es 0
-		else if (tablero[id + posicion] == 0) {
-			posicion--;
-			comparador--;
-		} //si el contiguo es 0
-		else if (tablero[id + comparador] == 0) {
-			comparador--;
+		else {
+			if (!hay_hueco) {
+				hay_hueco = true;
+				ultimo_hueco = i;
+			}
 		}
-		else { // Ambos son diferentes de cero y diferentes entre si
-			int aux = tablero[id + posicion];
-			tablero[id + posicion] = 0;
-			tablero[id + cursor] = aux;
-			cursor--;
-			posicion = comparador;
-			comparador--;
-		}
-	}
-	if (posicion >= 0) {
-		int aux = tablero[id + posicion];
-		tablero[id + posicion] = 0;
-		tablero[id + cursor] = aux;
 	}
 }
 
+__global__ void moverDeArribaAAbajo(float *tablero, int nc, int nf) {
+	int id = nf*nc - threadIdx.x;
+	int i;
+	bool hay_hueco = (tablero[id] == 0);
+	int ultimo_hueco = id;
+	float ultima_ficha = hay_hueco ? 0 : tablero[id];
+	int ultima_ficha_posicion = id;
+	for (int e = 1; e < nf; ++e) {
+		i = id - e * nc;
+		if (tablero[i] != 0) {
+			if (tablero[i] == ultima_ficha) {
+				tablero[ultima_ficha_posicion] = ultima_ficha * 2;
+				ultima_ficha = 0;
+				hay_hueco = true;
+				ultimo_hueco = ultima_ficha_posicion - nc;
+				if (i != ultima_ficha_posicion) {
+					tablero[i] = 0;
+				}
+			}
+			else {
+				if (hay_hueco) {
+					tablero[ultimo_hueco] = tablero[i];
+					ultima_ficha = tablero[i];
+					ultima_ficha_posicion = ultimo_hueco;
+					hay_hueco = (ultimo_hueco >= i);
+					if (i != ultimo_hueco) {
+						tablero[i] = 0;
+					}
+					ultimo_hueco -= nc;
+				}
+				else {
+					ultima_ficha = tablero[i];
+					ultima_ficha_posicion = i;
+					ultimo_hueco = i;
+					hay_hueco = false;
+				}
+			}
+		}
+		else {
+			if (!hay_hueco) {
+				hay_hueco = true;
+				ultimo_hueco = i;
+			}
+		}
+	}
+}
 
 int main(int argc, char **argv) {
 	float *tablero_h; //tablero de juego en el host 
@@ -299,13 +349,13 @@ int main(int argc, char **argv) {
 		std::cin >> movement_to_perform;
 		switch (movement_to_perform){
 		case 'w':
-			
+			moverDeAbajoAArriba << <1, n_columnas, 1 >> > (tablero_d, n_columnas, n_filas);
 			break;
 		case 'a':
 			moverDeDerechaAIzquierda << <1, n_filas, 1 >> > (tablero_d, n_columnas);
 			break;
 		case 's':
-			
+			moverDeArribaAAbajo << <1, n_columnas, 1 >> > (tablero_d, n_columnas, n_filas);
 			break;
 		case 'd':
 			moverDeIzquierdaADerecha <<<1, n_filas, 1 >>> (tablero_d, n_columnas);
