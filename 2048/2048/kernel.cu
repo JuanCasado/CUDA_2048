@@ -82,21 +82,10 @@ __global__ void fillMatrix(float *tablero, int *positions, int max_elements, int
 __global__ void moverDeDerechaAIzquierda(float *tablero, int nc) {
 	int id = threadIdx.x * nc;
 	int i;
-	bool hay_hueco;
-	int ultimo_hueco;
-	float ultima_ficha;
-	int ultima_ficha_posicion;
-	hay_hueco = tablero[id] == 0;
-	if (hay_hueco) {
-		ultimo_hueco = id;
-		ultima_ficha = 0;
-		ultima_ficha_posicion = id;
-	}
-	else {
-		ultima_ficha = tablero[id];
-		ultima_ficha_posicion = id;
-		ultimo_hueco = id;
-	}
+	bool hay_hueco = (tablero[id] == 0);
+	int ultimo_hueco = id;
+	float ultima_ficha = hay_hueco? 0:tablero[id];
+	int ultima_ficha_posicion = id;
 	for (int e = 1; e < nc; ++e) {
 		i = id + e;
 		if (tablero[i] != 0) {
@@ -136,6 +125,55 @@ __global__ void moverDeDerechaAIzquierda(float *tablero, int nc) {
 		}
 	}
 }
+
+__global__ void moverDeIzquierdaADerecha(float *tablero, int nc) {
+	int id = threadIdx.x * nc + nc - 1;
+	int i;
+	bool hay_hueco = (tablero[id] == 0);
+	int ultimo_hueco = id;
+	float ultima_ficha = hay_hueco ? 0 : tablero[id];
+	int ultima_ficha_posicion = id;
+	for (int e = 1; e < nc; ++e) {
+		i = id - e;
+		printf("id: %d\n", i);
+		if (tablero[i] != 0) {
+			if (tablero[i] == ultima_ficha) {
+				tablero[ultima_ficha_posicion] = ultima_ficha * 2;
+				ultima_ficha = 0;
+				hay_hueco = true;
+				ultimo_hueco = ultima_ficha_posicion - 1;
+				if (i != ultima_ficha_posicion) {
+					tablero[i] = 0;
+				}
+			}
+			else {
+				if (hay_hueco) {
+					tablero[ultimo_hueco] = tablero[i];
+					ultima_ficha = tablero[i];
+					ultima_ficha_posicion = ultimo_hueco;
+					hay_hueco = (ultimo_hueco >= i);
+					if (i != ultimo_hueco) {
+						tablero[i] = 0;
+					}
+					--ultimo_hueco;
+				}
+				else {
+					ultima_ficha = tablero[i];
+					ultima_ficha_posicion = i;
+					ultimo_hueco = i;
+					hay_hueco = false;
+				}
+			}
+		}
+		else {
+			if (!hay_hueco) {
+				hay_hueco = true;
+				ultimo_hueco = i;
+			}
+		}
+	}
+}
+
 
 __global__ void movimientoDerecha(float* tablero, int nc) {
 	int id = threadIdx.x * nc;
@@ -270,7 +308,7 @@ int main(int argc, char **argv) {
 			
 			break;
 		case 'd':
-			movimientoDerecha <<<1, n_filas, 1 >>> (tablero_d, n_columnas);
+			moverDeIzquierdaADerecha <<<1, n_filas, 1 >>> (tablero_d, n_columnas);
 			break;
 		default:
 			movement_to_perform = 'e';
