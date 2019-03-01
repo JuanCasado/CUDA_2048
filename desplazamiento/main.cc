@@ -5,14 +5,14 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <math.h>
 
-#define VACIO '0'
+#define VACIO 0
 
 template <class T>
 void generate_vector (T *vector, const int &size) {
-  char letters[] = {'A', 'B', 'C', 'D'};
   for (int i = 0; i < size; ++i){
-    vector [i] = (std::rand() % 3)? VACIO : letters[std::rand() % 4];
+    vector [i] = (std::rand() % 3)? VACIO : pow(2,((std::rand() % 4)+ 1));
   }
 }
 
@@ -47,7 +47,7 @@ void order_vector (T *tablero, const int &size){
   for (int i = 1; i < size; ++i){
     if (tablero[i] != VACIO){
       if (tablero[i] == ultima_ficha){
-        tablero[ultima_ficha_posicion] = ultima_ficha+1;
+        tablero[ultima_ficha_posicion] = ultima_ficha*2;
         ultima_ficha = 0;
         hay_hueco = true;
         ultimo_hueco = ultima_ficha_posicion + 1;
@@ -85,19 +85,103 @@ void order_vector (T *tablero, const int &size){
   }
 }
 
+void movimientoDerecha(float* tablero, int nf, int nc) {
+  int id = 0;
+  int posicion = nc-1; //nos movemos a través de las columnas de la misma fila 
+  int comparador = nc-2;
+  int cursor = nc-1;
+  while (posicion >= 0 && comparador > -1) {
+    //si no se ha llegado al final y ambos números son iguales y distintos de 0 se suman 
+    if (posicion > 0 && tablero[id+posicion] == tablero[id+comparador] && tablero[id +posicion] != 0
+      && tablero[id+comparador] != 0) {
+      int suma = tablero[id + comparador] + tablero[id +posicion];
+      tablero[id+posicion] = 0;
+      tablero[id +comparador] = 0;
+      tablero[id +cursor] = suma;
+      cursor--;
+      posicion = comparador - 1;
+      comparador -= 2;
+      
+    }
+    //si donde nos encontramos es 0
+    else if (tablero [id +posicion] == 0) {
+      posicion--;
+      comparador--;
+    } //si el contiguo es 0
+    else if (tablero[id +comparador] == 0) {
+      comparador--;
+    }
+    else { // Ambos son diferentes de cero y diferentes entre si
+      int aux = tablero[id+posicion];
+      tablero[id +posicion] = 0;
+      tablero[id+cursor] = aux;
+      cursor--;
+      posicion = comparador;
+      comparador--;
+    }
+  }
+  if (posicion >= 0) {
+    int aux = tablero[id+posicion];
+    tablero[id+posicion] = 0;
+    tablero [id+cursor] = aux;
+  }
+}
+  
+void movimientoAbajo(float* tablero, int nf, int nc) {
+  int id = 0;
+  int posicion = nf - 1; //nos movemos a través de las filas en la misma columna 
+  int comparador = nf - 2;
+  int cursor = nf - 1;
+  while (posicion >= 0 && comparador > -1) {
+    if (posicion > 0 && tablero[posicion+id] == tablero[comparador+id] && tablero[posicion+id] != 0
+      && tablero[comparador+id] != 0) {
+      int suma = tablero[comparador +id] + tablero[posicion + id];
+      tablero[posicion+ id] = 0;
+      tablero[comparador + id] = 0;
+      tablero[cursor + id] = suma;
+      cursor--;
+      posicion = comparador - 1;
+      comparador -= 2;
+  
+    }
+    else if (tablero[posicion + id] == 0) {
+      posicion--;
+      comparador--;
+    }
+    else if (tablero[comparador + id] == 0) {
+      comparador--;
+    }
+    else { // Ambos son diferentes de cero y diferentes entre si
+      int aux = tablero[posicion + id ];
+      tablero[posicion + id] = 0;
+      tablero[cursor + id] = aux;
+      cursor--;
+      posicion = comparador;
+      comparador--;
+    }
+  }
+  if (posicion >= 0) {
+    int aux = tablero[posicion + id];
+    tablero[posicion + id] = 0;
+    tablero[cursor + id ] = aux;
+
+  }
+}
+
 int main (int argc, char **argv){
   std::srand(std::time(nullptr));
   const int ksize = (argc < 2) ? 10 : std::atoi(argv[1]);
   const int krep = (argc < 3) ? 1 : std::atoi(argv[2]);
-  char *tablero =  (char*) malloc(sizeof(char) * ksize);
-  //char tablero_inicial[20] = {'C','C','0','0','0','B','A','0','C','D','A','0','0','0','0','0','0','0','B','B'};//-->DBACDAC
-  //char tablero_inicial[20] = {'0','0','0','0','0','C','C','0','B','B','0','0','D','C','0','0','0','0','D','0'};//-->DCDCD
-  //char tablero_inicial[20] = {'A','B','0','0','A','A','0','C','0','0','0','B','0','C','0','A','B','0','0','0'};//-->ABBCBCAB
+  //float *tablero =  (float*) malloc(sizeof(float) * ksize);
+  //float tablero[20] = {8,8,0,0,0,4,2,0,8,16,2,0,0,0,0,0,0,0,4,4};
+  //float tablero[20] = {0,0,0,0,0,8,8,0,4,4,0,0,16,8,0,0,0,0,16,0};
+  float tablero[20] = {2,4,0,0,2,2,0,8,0,0,0,4,0,16,0,2,4,0,0,0};
   for (int i = 0; i < krep; ++i) {
-    generate_vector<char>(tablero, ksize);
-    std::cout << "inicial: " << print_vector<char>(tablero, ksize) << std::endl;
-    order_vector<char>(tablero, ksize);
-    std::cout << "final: "<< print_vector<char>(tablero, ksize) << std::endl;
+    //generate_vector<float>(tablero, ksize);
+    std::cout << "inicial: " << print_vector<float>(tablero, ksize) << std::endl;
+    //order_vector<float>(tablero, ksize);
+    movimientoAbajo(tablero, ksize, 0);
+    std::cout << "final: "<< print_vector<float>(tablero, ksize) << std::endl;
   }
   return 0;
 }
