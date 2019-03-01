@@ -1,17 +1,17 @@
 /*
-Función que comprueba si hay movimientos libres.
+FunciÃ³n que comprueba si hay movimientos libres.
 se recorre el tablero de manera lineal, un hilo por fila.
-Se controla la posición, comparando a izq, dcha, arriba y abajo.
+Se controla la posiciÃ³n, comparando a izq, dcha, arriba y abajo.
 result es un vector donde se van poniendo si hau hueco o no */
 __global__ void  seguirJugando(float* tablero_d, bool* result, int nf, int nc) {
 
 	int posicion = threadIdx.x * nf;
 	//recorre la matriz hasta la columna 7 (0 a 7 ) (suponiendo matriz de 8x8)
-	//compara su posición si es cero y con la de al lado. 
+	//compara su posiciÃ³n si es cero y con la de al lado. 
 	// 01 12, 23, 34, 45, 56
 	for (int i = 0; i < nc - 2; i++) {
 		//si i es menor que 7 compara a si misma y con la de al lado
-		if (i< (nf - 1)) {
+		if (i< (nc - 1)) {
 			if (tablero_d[i + posicion] == 0 || tablero_d[i + posicion + 1] == 0 || tablero_d[i + posicion] == tablero_d[i + posicion + 1]) {
 				result[i + posicion] = true;
 			}
@@ -24,7 +24,7 @@ __global__ void  seguirJugando(float* tablero_d, bool* result, int nf, int nc) {
 			}
 			else result[i + posicion] = false;
 		}
-		// si no estamos en la última fila, comparamos con el de abajo
+		// si no estamos en la Ãºltima fila, comparamos con el de abajo
 		if (threadIdx.x < (nf - 1)) {
 			if (tablero_d[i + posicion] == 0 || tablero_d[i + posicion + nc] == 0 || tablero_d[i + posicion] == tablero_d[i + posicion + nf]) {
 				result[i + posicion] = true;
