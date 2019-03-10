@@ -42,6 +42,9 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
+    <ExecutablePath>C:\Users\jcb77\Documents\UAH_2018_2019\PROGRAMACION\LAB\CUDA_LIB\bin;$(ExecutablePath)</ExecutablePath>
+    <IncludePath>$(CUDA_INC_PATH);C:\Users\jcb77\Documents\UAH_2018_2019\PROGRAMACION\LAB\CUDA_LIB;$(IncludePath)</IncludePath>
+    <LibraryPath>C:\Users\jcb77\Documents\UAH_2018_2019\PROGRAMACION\LAB\CUDA_LIB\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -56,6 +59,7 @@
     </Link>
     <CudaCompile>
       <TargetMachinePlatform>64</TargetMachinePlatform>
+      <GenerateRelocatableDeviceCode>true</GenerateRelocatableDeviceCode>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -78,7 +82,9 @@
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <CudaCompile Include="kernel.cu" />
+    <CudaCompile Include="kernel.cu">
+      <AdditionalDeps Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">move.cuh;rotate.cuh</AdditionalDeps>
+    </CudaCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

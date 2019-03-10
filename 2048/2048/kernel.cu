@@ -1,4 +1,5 @@
 
+#include "cuda.h"
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include <stdlib.h> 
@@ -10,73 +11,24 @@
 #include <cstdlib>
 #include <string>
 #include <sstream>
+#include <vector>
 #include <curand_kernel.h>
 
-__host__ void check_CUDA_Error(const char *mensaje) {
-	cudaError_t error;
-	cudaDeviceSynchronize();
-	error = cudaGetLastError();
-	if (error != cudaSuccess) {
-		printf("ERROR %d: %s (%s)\n", error, cudaGetErrorString(error), mensaje); printf("\npulsa INTRO para finalizar...");
-		fflush(stdin);
-		char tecla = getchar();
-		exit(-1);
-	}
-}
+#include "common/book.h"
 
-/*Función que gneera un número aleatorio, comprendido entre 0 y el n-1 filas o columas que tenga*/
-__host__ void generate_random (int *result, int elements, int max) {
-	std::srand(static_cast<int>(time(0)));
-	int i = 0;
-	bool repeat;
-	do {
-		repeat = false;
-		result[i] = static_cast<int>(rand() % max);
-		for (int j = 0; j < i; ++j) {
-			repeat |= (result[i] == result[j]);
-		}
-		if (!repeat) {
-			++i;
-		}
-	} while (i < elements);
-}
+#include <conio.h>
+#define KEY_UP 72
+#define KEY_DOWN 80
+#define KEY_LEFT 75
+#define KEY_RIGHT 77
+#define LIVES 5
 
-__host__ void printTablero(float *tablero, int n_filas, int n_columnas) {
-	//Resultado
-	for (int i = 0; i < n_filas; i++) {
-		for (int j = 0; j < n_columnas; j++) {
-			std::cout << tablero[i*n_columnas + j] << ", ";
-		}
-		std::cout << std::endl;
-	}
-}
-
-__global__ void fillMatrix(float *tablero, int *positions, int max_elements, int n_positions, int max_random) {
+__global__ void rotate90(float *entrada, float *salida, int nc, int nf) {
 	int id = threadIdx.x;
-	bool set = false;
-	if (id < max_elements) {
-		for (int i = 0; i < n_positions; ++i) {
-			if (id == (positions[i])) {
-				curandState state;
-				curand_init((unsigned long long)clock() + id, 0, 0, &state);
-				switch (static_cast<int>(curand(&state) % max_random)) {
-				case 0:
-					tablero[id] = 2;
-					break;
-				case 1:
-					tablero[id] = 4;
-					break;
-				case 2:
-					tablero[id] = 8;
-					break;
-				}
-				set = true;
-			}
-		}
-		if (!set) {
-			tablero[id] = static_cast<float>(0);
-		}
-	}
+	int fila = id / nf;
+	int columna = id - fila * nc;
+	int id_out = columna * nf + nc;
+	salida[id_out] = entrada[id];
 }
 
 __global__ void moverDeDerechaAIzquierda(float *tablero, int nc) {
@@ -84,7 +36,7 @@ __global__ void moverDeDerechaAIzquierda(float *tablero, int nc) {
 	int i;
 	bool hay_hueco = (tablero[id] == 0);
 	int ultimo_hueco = id;
-	float ultima_ficha = hay_hueco? 0:tablero[id];
+	float ultima_ficha = hay_hueco ? 0 : tablero[id];
 	int ultima_ficha_posicion = id;
 	for (int e = 1; e < nc; ++e) {
 		i = id + e;
@@ -181,7 +133,7 @@ __global__ void moverDeAbajoAArriba(float *tablero, int nc, int nf) {
 	float ultima_ficha = hay_hueco ? 0 : tablero[id];
 	int ultima_ficha_posicion = id;
 	for (int e = 1; e < nf; ++e) {
-		i = id + nc*e;
+		i = id + nc * e;
 		if (tablero[i] != 0) {
 			if (tablero[i] == ultima_ficha) {
 				tablero[ultima_ficha_posicion] = ultima_ficha * 2;
@@ -221,7 +173,7 @@ __global__ void moverDeAbajoAArriba(float *tablero, int nc, int nf) {
 }
 
 __global__ void moverDeArribaAAbajo(float *tablero, int nc, int nf) {
-	int id = nf*nc - threadIdx.x;
+	int id = nf * nc - threadIdx.x;
 	int i;
 	bool hay_hueco = (tablero[id] == 0);
 	int ultimo_hueco = id;
@@ -267,21 +219,86 @@ __global__ void moverDeArribaAAbajo(float *tablero, int nc, int nf) {
 	}
 }
 
-int main(int argc, char **argv) {
-	float *tablero_h; //tablero de juego en el host 
-	float *tablero_d; //tablero de juego en el device
-	int n_filas; //numero de filas
-	int n_columnas; //numro de  columnas
-	int n_elementos;  //numero de elementos de la matriz (nc*nf)
-	size_t size_elementos;
-	int elementos_iniciales; //Nivel de juego, 8 o 15 semillas.
-	char modo_ejecucion; //modo de ejecución, automático o manual 
+__host__ void check_CUDA_Error(const char *mensaje) {
+	cudaError_t error;
+	cudaDeviceSynchronize();
+	error = cudaGetLastError();
+	if (error != cudaSuccess) {
+		printf("ERROR %d: %s (%s)\n", error, cudaGetErrorString(error), mensaje); printf("\npulsa INTRO para finalizar...");
+		fflush(stdin);
+		char tecla = getchar();
+		exit(-1);
+	}
+}
 
-	int *random_h; //vector que almacena posicion x 
-	int *random_d; //vector donde se copian los puntos en el device
+template <class T>
+__host__ std::string printTablero(T *tablero, int n_filas, int n_columnas) {
+	std::stringstream ss;
+	for (int i = 0; i < n_filas; i++) {
+		for (int j = 0; j < n_columnas; j++) {
+			ss << tablero[i*n_columnas + j] << ", ";
+		}
+		ss << "\n";
+	}
+	return ss.str();
+}
+
+/*Pone la cantidad de números aleatorios indicada en el tablero siempre que se pueda*/
+template <class T>
+__host__ void addRandom (T *tablero, int elements, int len) {
+	std::vector<int> available_positions;
+	available_positions.reserve(len);
+	for (int i = 0; i < len; ++i) {
+		if (tablero[i] == 0) {
+			available_positions.emplace_back(i);
+		}
+	}
+	if (available_positions.size() <= 0) return;
+	int takes = ((elements < available_positions.size())? elements : available_positions.size());
+	do {
+		int random = static_cast<int>(std::rand() % available_positions.size());
+		tablero[available_positions[random]] = (static_cast<int>(std::rand() % 1) + 1) * ((takes > 8) ? 2 : 4);
+		available_positions.erase(available_positions.begin() + random, available_positions.begin() + random + 1);
+		--takes;
+	} while (takes > 0);
+}
+
+__host__ std::string replicateString(std::string str, int amount) {
+	std::stringstream ss;
+	for (int i = 0; i < amount*3; ++i) {
+		ss << str;
+	}
+	return ss.str();
+}
+
+template <class T>
+__host__ T sumArray(T *arr, int len) {
+	T sum = 0;
+	for (int i = 0; i < len * 3; ++i) {
+		sum += arr[i];
+	}
+	return sum;
+}
+
+int main(int argc, char **argv) {
+	std::srand(static_cast<int>(time(0)));
+	float *tablero_h;
+	float *tablero_d;
+	int n_filas;
+	int n_columnas;
+	int n_elementos; 
+	size_t size_elementos;
+	int elementos_iniciales;
+	char modo_ejecucion;
+
+	cudaDeviceProp prop;
+	HANDLE_ERROR(cudaGetDeviceProperties(&prop, 0));
+	std::cout << "Multiprocesor count: " << prop.multiProcessorCount << std::endl;
+	std::cout << "Max Threads per multiprocesor: " << prop.maxThreadsPerMultiProcessor << std::endl;
+	std::cout << "Max Threads per block: " << prop.maxThreadsPerBlock << std::endl << std::endl;
 
 	if (argc < 4) {
-		std::cout << "Modo de ejecucion [ a | m]" << std::endl;
+		std::cout << "Modo de ejecucion [ a | m ]" << std::endl;
 		std::cin >> modo_ejecucion;
 		std::cout << "Cuantos elementos iniciales quiere [ 1 = 8 | 2 = 15 ]" << std::endl;
 		std::cin >> elementos_iniciales;
@@ -297,19 +314,19 @@ int main(int argc, char **argv) {
 	}
 	if (n_filas < 4) {
 		std::cout << "Filas insuficientes" << std::endl;
-		exit(-1);
+		n_filas = 4;
 	}
 	if (n_columnas < 4) {
 		std::cout << "Columnas insuficientes" << std::endl;
-		exit(-2);
+		n_columnas = 4;
 	}
 	if ((modo_ejecucion != 'a') && (modo_ejecucion != 'm')) {
 		std::cout << "Modo de ejecución incorrecto" << std::endl;
-		exit(-3);
+		modo_ejecucion = 'a';
 	}
 	if (elementos_iniciales < 0) {
-		std::cout << "Elementos iniciales insuficiente" << std::endl;
-		exit(-4);
+		std::cout << "Elementos iniciales insuficientes" << std::endl;
+		elementos_iniciales = 15;
 	}
 	switch (elementos_iniciales) {
 	case 0: {
@@ -319,53 +336,53 @@ int main(int argc, char **argv) {
 		elementos_iniciales = 8;
 	} break;
 	case 2: {
-		elementos_iniciales = 15;
+		elementos_iniciales = 15; 
 	} break;
 	}
-	
 	n_elementos = n_filas * n_columnas;
 	size_elementos = sizeof(float) * n_elementos;
-	int n_elementos_pow2 = static_cast<char>(pow(2,ceil(log2(n_elementos))));
 
-	//incializamos las posiciones iniciales aleatoriamente
-	random_h = (int*) malloc(sizeof(int) * elementos_iniciales);
-	generate_random(random_h, elementos_iniciales, n_elementos);
-	cudaMalloc((void **)&random_d, sizeof(int)*elementos_iniciales);
-	cudaMemcpy(random_d, random_h, sizeof(int)*elementos_iniciales, cudaMemcpyHostToDevice);
+	std::cout << "Columnas : " << n_columnas << " | Filas: " << n_filas << " -> Elementos: " << n_elementos << std::endl;
+	std::cout << "Modo: " << ((modo_ejecucion == 'a') ? "automatico" : "manual") << " | Elementos iniciales: " << elementos_iniciales << std::endl;
 
-	//iniciamos el tablero
 	tablero_h = (float*)malloc(size_elementos);
 	cudaMalloc((void **)&tablero_d, size_elementos);
-	fillMatrix <<<1, n_elementos_pow2, 1>>> (tablero_d, random_d, n_elementos, elementos_iniciales, static_cast<int>(floor(elementos_iniciales/3)));
-	cudaFree(random_d);
-	check_CUDA_Error("FILL_MATRIX");
-
+	memset(tablero_h, 0, size_elementos);
+	int round = 0;
+	int lives = LIVES;
+	int score [LIVES];
+	memset(score, 0, sizeof(int)*LIVES);
+	std::string sidebar = replicateString ("-", static_cast<int>(n_columnas*2.4));
+	std::string spaces = replicateString (" ", n_columnas);
 	char movement_to_perform;
 	do {
-		cudaMemcpy(tablero_h, tablero_d, size_elementos, cudaMemcpyDeviceToHost);
-		std::cout << "---------------------" << std::endl;
-		printTablero(tablero_h, n_filas, n_columnas);
-		std::cout << "{wasd->movement;e->exit}: ";
-		std::cin >> movement_to_perform;
-		switch (movement_to_perform){
-		case 'w':
-			moverDeAbajoAArriba << <1, n_columnas, 1 >> > (tablero_d, n_columnas, n_filas);
-			break;
-		case 'a':
-			moverDeDerechaAIzquierda << <1, n_filas, 1 >> > (tablero_d, n_columnas);
-			break;
-		case 's':
-			moverDeArribaAAbajo << <1, n_columnas, 1 >> > (tablero_d, n_columnas, n_filas);
-			break;
-		case 'd':
-			moverDeIzquierdaADerecha <<<1, n_filas, 1 >>> (tablero_d, n_columnas);
-			break;
-		default:
-			movement_to_perform = 'e';
-			break;
+		movement_to_perform = getch();
+		if (movement_to_perform == 0 || static_cast<int>(movement_to_perform )== -32) {
+			std::cout << sidebar << std::endl;
+			std::cout << "Round: " << ++round << spaces << "Lives :" << lives << std::endl;
+			std::cout << sidebar << std::endl;
+			addRandom(tablero_h, elementos_iniciales ,n_elementos);
+			std::cout << printTablero(tablero_h, n_filas, n_columnas) << std::endl;
+			switch ((movement_to_perform = getch())) {
+			case KEY_UP:
+				moverDeAbajoAArriba << <1, n_columnas, 1 >> > (tablero_d, n_columnas, n_filas);
+				break;
+			case KEY_LEFT:
+				moverDeDerechaAIzquierda << <1, n_filas, 1 >> > (tablero_d, n_columnas);
+				break;
+			case KEY_DOWN:
+				moverDeArribaAAbajo << <1, n_columnas, 1 >> > (tablero_d, n_columnas, n_filas);
+				break;
+			case KEY_RIGHT:
+				moverDeIzquierdaADerecha << <1, n_filas, 1 >> > (tablero_d, n_columnas);
+				break;
+			}
+			check_CUDA_Error("MOVER");
 		}
-		check_CUDA_Error("MOVER");
 	} while (movement_to_perform!='e');
+
+	std::cout << "Game over!!!" << std::endl;
+	std::cout << "TotalScore: " << sumArray(score, LIVES) << std::endl;
 
 	getchar(); //se cierra la ventana si no pongo esto. 
 	free(tablero_h);
