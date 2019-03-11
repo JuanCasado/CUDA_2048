@@ -1,17 +1,4 @@
-﻿  
-  C:\Users\jcb77\Documents\UAH_2018_2019\PROGRAMACION\LAB\CUDA_2048\2048\2048>"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.0\bin\nvcc.exe" -dlink -o x64\Debug\2048.device-link.obj -Xcompiler "/EHsc /W3 /nologo /Od /Zi /RTC1 /MDd " -L"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.0\lib\x64" cudart_static.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib  -gencode=arch=compute_35,code=sm_35 -G --machine 64 x64\Debug\kernel.cu.obj 
-  cudart_static.lib
-  kernel32.lib
-  user32.lib
-  gdi32.lib
-  winspool.lib
-  comdlg32.lib
-  advapi32.lib
-  shell32.lib
-  ole32.lib
-  oleaut32.lib
-  uuid.lib
-  odbc32.lib
-  odbccp32.lib
-  kernel.cu.obj
-  2048.vcxproj -> C:\Users\jcb77\Documents\UAH_2018_2019\PROGRAMACION\LAB\CUDA_2048\2048\x64\Debug\2048.exe
+﻿  Compiling CUDA source file kernel.cu...
+  
+  C:\Users\jcb77\Documents\UAH_2018_2019\PROGRAMACION\LAB\CUDA_2048\2048\2048>"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.0\bin\nvcc.exe" -gencode=arch=compute_35,code=\"sm_35,compute_35\" --use-local-env -ccbin "C:\Program Files (x86)\Microsoft Visual Studio\2017\Enterprise\VC\Tools\MSVC\14.16.27023\bin\HostX86\x64" -x cu -rdc=true -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.0\include" -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v10.0\include"  -G   --keep-dir x64\Debug -maxrregcount=0  --machine 64 --compile -cudart static  -g   -DWIN32 -DWIN64 -D_DEBUG -D_CONSOLE -D_MBCS -Xcompiler "/EHsc /W3 /nologo /Od /Fdx64\Debug\vc141.pdb /FS /Zi /RTC1 /MDd " -o x64\Debug\kernel.cu.obj "C:\Users\jcb77\Documents\UAH_2018_2019\PROGRAMACION\LAB\CUDA_2048\2048\2048\kernel.cu" 
+  kernel.cu

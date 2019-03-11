@@ -1,7 +1,7 @@
-unción que comprueba si hay posiciones libres o no en el tablero. Compara con su izquierda dcha arriba y abajo
+﻿unción que comprueba si hay posiciones libres o no en el tablero. Compara con su izquierda dcha arriba y abajo
 Guardamos en variables auxiliares los posibles resultados. Y luego si son iguales o no se escribe en la posción del array de reaultados
 */
-__global__ void  seguirJugando(float* tablero_d, bool* result, int nf, int nc) {
+__global__ void  seguirJugando(float* tablero_d, bool* result, int nc, int nf) {
 	bool aux1, aux2, aux3 = false;
 	int posicion = blockIdx.x*blockDim.x + threadIdx.x;
 	
