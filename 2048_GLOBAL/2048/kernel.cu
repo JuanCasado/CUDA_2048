@@ -26,6 +26,7 @@
 #define KEY_RIGHT 77
 #define LIVES 5//CANTIDAD DE VIDAS
 #define RANDOM_IA 0//MODO DE LA IA
+#define SCALE 1
 //COLORES
 #define RESET "\033[0m"
 #define Red "\033[1;31m"      
@@ -118,52 +119,19 @@ __global__ void flipV(float *tablero, int size, int nc, int nf) {
 
 /*
 Realiza los el movimiento horizontal (izquierda) en el tablero según la matriz de decisiones
-La matriz tablero es de entrada y salida
-La matriz de decisiones queda destruida cuando se realiza el movimiento
-Las decisiones indican a los hilos como comportarse, es decir, si deben sumarse o no,
-con ello se evita que cuatro números iguales seguidos se sumen en uno solo, quedarían en dos iguales contiguos o
-se logra que cuando hay tres número iguales se respete el orden de su suma
+Pone en result los valores de tablero desplazados tanto como se indique en jump
 */
-__global__ void moveH(float *tablero, float *decisions, int size, int nc) {
+__global__ void moveH(float *tablero, float *jump, float *result, int size, int nc) {
 	int id = threadIdx.x;
 	int colum = id % nc;
-	bool tiene_izquierda = colum != 0; //Si el número NO tiene izquierda no debe hacer nada
-	float izquierda = 0;
-	float propio = 0;
-	float decision = 0;
-	for (int i = 0; i < (nc - 1); ++i) {//Iteraciones mínimar para garantizar completitud
-		__syncthreads();//LECTURA DE DATOS
-		if (tiene_izquierda) {
-			if (id < size) {
-				izquierda = tablero[id - 1];
-				propio = tablero[id];
-				decision = decisions[id];
-			}
-		}
-		__syncthreads();//ACTUACIÓN
-		if (tiene_izquierda) {
-			if (decision == 0) {
-				if ((izquierda == 0) && (propio!=0)) {
-					if (id < size) {
-						tablero[id - 1] = propio;
-						tablero[id] = 0;
-					}
-				}
-			} else {
-				if (izquierda == 0) {
-					if (id < size) {
-						tablero[id - 1] = propio;
-						decisions[id - 1] = decision;
-						tablero[id] = 0;
-					}
-				}
-				if (izquierda == propio) {
-					if (id < size) {
-						tablero[id - 1] = propio * 2;
-						decisions[id] = 0;
-						tablero[id] = 0;
-					}
-				}
+	int row = id / nc;
+	if (id < size) {
+		float value = tablero[id];
+		int offset = colum - jump[id];
+		int future_pos = (offset) + row * nc;
+		if (future_pos >= 0) {
+			if (value) {
+				result[future_pos] = value;
 			}
 		}
 	}
@@ -171,51 +139,106 @@ __global__ void moveH(float *tablero, float *decisions, int size, int nc) {
 
 /*
 Realiza los el movimiento verical (arriba) en el tablero según la matriz de decisiones
-La matriz tablero es de entrada y salida
-La matriz de decisiones queda destruida cuando se realiza el movimiento
-Las decisiones indican a los hilos como comportarse, es decir, si deben sumarse o no,
-con ello se evita que cuatro números iguales seguidos se sumen en uno solo, quedarían en dos iguales contiguos o
-se logra que cuando hay tres número iguales se respete el orden de su suma
+Pone en result los valores de tablero desplazados tanto como se indique en jump
 */
-__global__ void moveV(float *tablero, float *decisions, int size, int nc, int nf) {
+__global__ void moveV(float *tablero, float *jump, float *result, int size, int nc) {
+	int id = threadIdx.x;
+	int colum = id % nc;
+	int row = id / nc;
+	if (id < size) {
+		float value = tablero[id];
+		int offset = row - jump[id];
+		int future_pos = colum + (offset) * nc;
+		if (future_pos >= 0) {
+			if (value) {
+				result[future_pos] = value;
+			}
+		}
+	}
+}
+
+/*
+Dice los ceros que hay desde cada casilla al final del tablero hacia la izquierda
+Se utiliza para saber cuanto desplazar los valores en move
+*/
+__global__ void zeroCountH(float *tablero, float *jump, int size, int nc) {
+	int id = threadIdx.x;
+	int colum = id % nc;
+	int count = 0;
+	if (id < size) {
+		for (int i = 1; i <= colum; ++i) {
+			if (!tablero[id - i]) {
+				++count;
+			}
+		}
+		jump[id] += count;
+	}
+}
+
+/*
+ice los ceros que hay desde cada casilla al final del tablero hacia la abajo
+Se utiliza para saber cuanto desplazar los valores en move
+*/
+__global__ void zeroCountV(float *tablero, float *jump, int size, int nc) {
 	int id = threadIdx.x;
 	int row = id / nc;
-	bool tiene_arriba = row != 0; //Si el número NO tiene arriba no debe hacer nada
-	float arriba = 0;
-	float propio = 0;
-	float decision = 0;
-	for (int i = 0; i < (nf - 1); ++i) {//Iteraciones mínimar para garantizar completitud
-		__syncthreads();//LECTURA DE DATOS
-		if (tiene_arriba) {
-			arriba = tablero[id - nc];
-			propio = tablero[id];
-			decision = decisions[id];
-		}
-		__syncthreads();//ACTUACIÓN
-		if (tiene_arriba) {
-			if (decision == 0) {
-				if ((arriba == 0) && (propio != 0)) {
-					if (id < size) {
-						tablero[id - nc] = propio;
-						tablero[id] = 0;
-					}
-				}
-			} else {
-				if (arriba == 0) {
-					if (id < size) {
-						tablero[id - nf] = propio;
-						decisions[id - nf] = decision;
-						tablero[id] = 0;
-					}
-				}
-				if (arriba == propio) {
-					if (id < size) {
-						tablero[id - nf] = propio * 2;
-						decisions[id] = 0;
-						tablero[id] = 0;
-					}
-				}
+	int count = 0;
+	if (id < size) {
+		for (int i = 1; i <= row; ++i) {
+			if (!tablero[id - i*nc]) {
+				++count;
 			}
+		}
+		jump[id] += count;
+	}
+}
+
+/*
+Pone un uno en aquellas casillas que de deban borrar para realizar un movimiento (izquierda) según como 
+indique la matriz de decisiones
+*/
+__global__ void createDeleterH(float *tablero, float *decisions, float *out, int size) {
+	int id = threadIdx.x;
+	if (id < size) {
+		if (decisions[id]) {
+			int i = 1;
+			while (!tablero[id - i]) {
+				++i;
+			}
+			//printf("id: %d,def: %d", id, id-i);
+			out[id - i] = 1;
+		}
+	}
+}
+
+/*
+Pone un uno en aquellas casillas que de deban borrar para realizar un movimiento (abajo) según como
+indique la matriz de decisiones
+*/
+__global__ void createDeleterV(float *tablero, float *decisions, float *out, int size, int nc) {
+	int id = threadIdx.x;
+	if (id < size) {
+		if (decisions[id]) {
+			int i = nc;
+			while (!tablero[id - i]) {
+				i+=nc;
+			}
+			out[id - i] = 1;
+		}
+	}
+}
+
+/*
+Sobre tablero se borra aquellas casillas indicadas por mask y se pone lo que haya en decisions
+Debido a cómo se generan mask y decisions nunca coinciden con un valor en la misma posicion
+*/
+__global__ void deleteValues(float *tablero, float *mask, float *decisions, int size) {
+	int id = threadIdx.x;
+	if (id < size) {
+		if (decisions[id]) {
+			tablero[id] = decisions[id];
+		} else if (mask[id]) {
+			tablero[id] = 0;
 		}
 	}
 }
@@ -245,12 +268,12 @@ __global__ void takeDecisionsH(float *tablero, float *decisions,int size, int nc
 		--colum_index;
 		if (id < size) {
 			new_value = tablero[index];
-		}
-		if (new_value == value) {
-			perform_movement = !perform_movement;
-		}
-		if ((new_value != 0) && (new_value != value)) {
-			different_value_found = true;
+			if (new_value == value) {
+				perform_movement = !perform_movement;
+			}
+			if ((new_value != 0) && (new_value != value)) {
+				different_value_found = true;
+			}
 		}
 	}
 	if (perform_movement) {
@@ -285,12 +308,12 @@ __global__ void takeDecisionsV(float *tablero, float *decisions,int size, int nc
 		--row_index;
 		if (id < size) {
 			new_value = tablero[index];
-		}
-		if (new_value == value) {
-			perform_movement = !perform_movement;
-		}
-		if ((new_value != 0) && (new_value != value)) {
-			different_value_found = true;
+			if (new_value == value) {
+				perform_movement = !perform_movement;
+			}
+			if ((new_value != 0) && (new_value != value)) {
+				different_value_found = true;
+			}
 		}
 	}
 	if (perform_movement) {
@@ -556,9 +579,10 @@ __host__ T maxArray(T *arr, int len) {
 }
 
 int main(int argc, char **argv) {
-	CONSOLE_FONT_INFOEX font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {8,14},FF_DONTCARE,FW_NORMAL};
-	SetCurrentConsoleFontEx(GetStdHandle(STD_OUTPUT_HANDLE) ,true,&font); //Control de la fuente
-	ShowWindow(GetConsoleWindow(), SW_MAXIMIZE);//Consola en pantalla completa
+	CONSOLE_FONT_INFOEX font;
+	font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {15,21},FF_DONTCARE,FW_NORMAL };
+	SetCurrentConsoleFontEx(GetStdHandle(STD_OUTPUT_HANDLE), true, &font); //Control de la fuente
+	ShowWindow(GetConsoleWindow(), SW_SHOWMAXIMIZED);//Consola en pantalla completa
 	std::srand(static_cast<int>(time(0)));
 	float *tablero_h;//Almacena la posicion de las fichas
 	float *tablero_d;
@@ -583,6 +607,12 @@ int main(int argc, char **argv) {
 	float *ia_tablero_d;
 	float *ia_decisions_h;
 	float *ia_decisions_d;
+	float *jumps_h;//Saltos desde cada posicion para hacer un movimiento
+	float *jumps_d;
+	float *tablero_aux_d;
+	float *tablero_aux_h;
+	float *delete_mask_d;
+	float *delete_mask_h;
 	//Datos de tablero
 	int n_filas;
 	int n_columnas;
@@ -668,6 +698,30 @@ int main(int argc, char **argv) {
 	}
 	std::cout << "Press any key to continue" << std::endl;
 	getch();//SE PONE PARA QUE SE VENA LOS DATOS ANTES DE INICIAR EL JUEGO
+	system("cls");
+	if (SCALE) {
+		if (n_elementos <= 16) {
+			font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {40,58},FF_DONTCARE,FW_NORMAL };
+		}
+		else if (n_elementos <= 64) {
+			font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {24,32},FF_DONTCARE,FW_NORMAL };
+		}
+		else if (n_elementos <= 256) {
+			font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {12,20},FF_DONTCARE,FW_NORMAL };
+		}
+		else if (n_elementos <= 1024) {
+			font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {8,14},FF_DONTCARE,FW_NORMAL };
+		}
+		else if (n_elementos <= 3200) {
+			font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {6,9},FF_DONTCARE,FW_NORMAL };
+		}
+		else {
+			font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {4,6},FF_DONTCARE,FW_NORMAL };
+		}
+		SetCurrentConsoleFontEx(GetStdHandle(STD_OUTPUT_HANDLE), true, &font); //Control de la fuente
+		ShowWindow(GetConsoleWindow(), SW_RESTORE);//Consola en pantalla completa
+		ShowWindow(GetConsoleWindow(), SW_SHOWMAXIMIZED);//Consola en pantalla completa
+	}
 	//Reserva de memoria
 	tablero_h = (float*)malloc(size_elementos);
 	decisions_h = (float*)malloc(size_elementos);
@@ -680,6 +734,9 @@ int main(int argc, char **argv) {
 	decisions_cpy_h = (float*)malloc(size_elementos);
 	ia_tablero_h = (float*)malloc(size_elementos);
 	ia_decisions_h = (float*)malloc(size_elementos);
+	jumps_h = (float*)malloc(size_elementos);
+	tablero_aux_h = (float*)malloc(size_elementos);
+	delete_mask_h = (float*)malloc(size_elementos);
 	HANDLE_ERROR(cudaMalloc((void **)&tablero_d, size_elementos));
 	HANDLE_ERROR(cudaMalloc((void **)&decisions_d, size_elementos));
 	HANDLE_ERROR(cudaMalloc((void **)&sum_points_d, size_elementos));
@@ -691,6 +748,9 @@ int main(int argc, char **argv) {
 	HANDLE_ERROR(cudaMalloc((void **)&decisions_cpy_d, size_elementos));
 	HANDLE_ERROR(cudaMalloc((void **)&ia_tablero_d, size_elementos));
 	HANDLE_ERROR(cudaMalloc((void **)&ia_decisions_d, size_elementos));
+	HANDLE_ERROR(cudaMalloc((void **)&jumps_d, size_elementos));
+	HANDLE_ERROR(cudaMalloc((void **)&tablero_aux_d, size_elementos));
+	HANDLE_ERROR(cudaMalloc((void **)&delete_mask_d, size_elementos));
 	//Asignación inicial de memoria
 	memset(tablero_h, 0, size_elementos);
 	memset(decisions_h, 0, size_elementos);
@@ -703,6 +763,9 @@ int main(int argc, char **argv) {
 	memset(decisions_cpy_h, 0, size_elementos);
 	memset(ia_tablero_h, 0, size_elementos);
 	memset(ia_decisions_h, 0, size_elementos);
+	memset(jumps_h, 0, size_elementos);
+	memset(tablero_aux_h, 0, size_elementos);
+	memset(delete_mask_h, 0, size_elementos);
 	memset(score, 0, sizeof(int)*LIVES);
 	addRandom<float>(tablero_h, elementos_iniciales, n_elementos);
 	do {//BUCLE DE JUEGO
@@ -734,6 +797,9 @@ int main(int argc, char **argv) {
 			HANDLE_ERROR(cudaMemcpy(decisions_cpy_d, decisions_cpy_h, size_elementos, cudaMemcpyHostToDevice));
 			HANDLE_ERROR(cudaMemcpy(ia_tablero_d, ia_tablero_h, size_elementos, cudaMemcpyHostToDevice));
 			HANDLE_ERROR(cudaMemcpy(ia_tablero_d, ia_decisions_h, size_elementos, cudaMemcpyHostToDevice));
+			HANDLE_ERROR(cudaMemcpy(jumps_d, jumps_h, size_elementos, cudaMemcpyHostToDevice));
+			HANDLE_ERROR(cudaMemcpy(tablero_aux_d, tablero_aux_h, size_elementos, cudaMemcpyHostToDevice));
+			HANDLE_ERROR(cudaMemcpy(delete_mask_d, delete_mask_h, size_elementos, cudaMemcpyHostToDevice));
 			if (modo_ejecucion == 'm') {
 				movement_to_perform = getch();
 			} else {//IA
@@ -766,7 +832,15 @@ int main(int argc, char **argv) {
 							check_CUDA_Error("DECISIONES V");
 							cpyMatrix << <1, n_elementos, 0 >> > (ia_decisions_d, decisions_cpy_d, n_elementos);
 							check_CUDA_Error("CPY");
-							moveV << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, n_elementos, n_columnas, n_filas);
+							setValue << <1, n_elementos, 0 >> > (jumps_d, n_elementos, 0);
+							setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+							setValue << <1, n_elementos, 0 >> > (delete_mask_d, n_elementos, 0);
+							createDeleterV << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, delete_mask_d, n_elementos, n_columnas);
+							deleteValues << <1, n_elementos, 0 >> > (ia_tablero_d, delete_mask_d, ia_decisions_d, n_elementos);
+							zeroCountV << <1, n_elementos, 0 >> > (ia_tablero_d, jumps_d, n_elementos, n_columnas);
+							setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+							moveV << <1, n_elementos, 0 >> > (ia_tablero_d, jumps_d, tablero_aux_d, n_elementos, n_columnas);
+							cpyMatrix << <1, n_elementos, 0 >> > (tablero_aux_d, ia_tablero_d, n_elementos);
 							check_CUDA_Error("MOVE V");
 							break;
 						case 1:
@@ -774,7 +848,15 @@ int main(int argc, char **argv) {
 							check_CUDA_Error("DECISIONES H");
 							cpyMatrix << <1, n_elementos, 0 >> > (ia_decisions_d, decisions_cpy_d, n_elementos);
 							check_CUDA_Error("CPY");
-							moveH << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, n_elementos, n_columnas);
+							setValue << <1, n_elementos, 0 >> > (jumps_d, n_elementos, 0);
+							setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+							setValue << <1, n_elementos, 0 >> > (delete_mask_d, n_elementos, 0);
+							createDeleterH << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, delete_mask_d, n_elementos);
+							deleteValues << <1, n_elementos, 0 >> > (ia_tablero_d, delete_mask_d, ia_decisions_d, n_elementos);
+							zeroCountH << <1, n_elementos, 0 >> > (ia_tablero_d, jumps_d, n_elementos, n_columnas);
+							setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+							moveH << <1, n_elementos, 0 >> > (ia_tablero_d, jumps_d, tablero_aux_d, n_elementos, n_columnas);
+							cpyMatrix << <1, n_elementos, 0 >> > (tablero_aux_d, ia_tablero_d, n_elementos);
 							check_CUDA_Error("MOVE H");
 							break;
 						case 2:
@@ -784,7 +866,15 @@ int main(int argc, char **argv) {
 							check_CUDA_Error("DECISIONES V");
 							cpyMatrix << <1, n_elementos, 0 >> > (ia_decisions_d, decisions_cpy_d, n_elementos);
 							check_CUDA_Error("CPY");
-							moveV << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, n_elementos, n_columnas, n_filas);
+							setValue << <1, n_elementos, 0 >> > (jumps_d, n_elementos, 0);
+							setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+							setValue << <1, n_elementos, 0 >> > (delete_mask_d, n_elementos, 0);
+							createDeleterV << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, delete_mask_d, n_elementos, n_columnas);
+							deleteValues << <1, n_elementos, 0 >> > (ia_tablero_d, delete_mask_d, ia_decisions_d, n_elementos);
+							zeroCountV << <1, n_elementos, 0 >> > (ia_tablero_d, jumps_d, n_elementos, n_columnas);
+							setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+							moveV << <1, n_elementos, 0 >> > (ia_tablero_d, jumps_d, tablero_aux_d, n_elementos, n_columnas);
+							cpyMatrix << <1, n_elementos, 0 >> > (tablero_aux_d, ia_tablero_d, n_elementos);
 							check_CUDA_Error("MOVE V");
 							flipV << <1, n_elementos, 0 >> > (ia_tablero_d, n_elementos, n_columnas, n_filas);
 							check_CUDA_Error("FILIP V");
@@ -796,7 +886,14 @@ int main(int argc, char **argv) {
 							check_CUDA_Error("DECISIONES H");
 							cpyMatrix << <1, n_elementos, 0 >> > (ia_decisions_d, decisions_cpy_d, n_elementos);
 							check_CUDA_Error("CPY");
-							moveH << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, n_elementos, n_columnas);
+							setValue << <1, n_elementos, 0 >> > (jumps_d, n_elementos, 0);
+							setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+							setValue << <1, n_elementos, 0 >> > (delete_mask_d, n_elementos, 0);
+							createDeleterH << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, delete_mask_d, n_elementos);
+							deleteValues << <1, n_elementos, 0 >> > (ia_tablero_d, delete_mask_d, ia_decisions_d, n_elementos);
+							zeroCountH << <1, n_elementos, 0 >> > (ia_tablero_d, jumps_d, n_elementos, n_columnas);
+							setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+							moveH << <1, n_elementos, 0 >> > (ia_tablero_d, jumps_d, tablero_aux_d, n_elementos, n_columnas);
 							check_CUDA_Error("MOVE H");
 							flipH << <1, n_elementos, 0 >> > (ia_tablero_d, n_elementos, n_columnas);
 							check_CUDA_Error("FILIP H");
@@ -823,8 +920,7 @@ int main(int argc, char **argv) {
 						sumMovements << <1, n_elementos, 0 >> > (movements_left_aux_d, movements_left_d, n_elementos, max_recursion);
 						check_CUDA_Error("MOVEMENTS LEFT SUM");
 						HANDLE_ERROR(cudaMemcpy(movements_left_h, movements_left_d, size_elementos, cudaMemcpyDeviceToHost));
-						ia_score[i] = (sum_gaps_h[0]?1:0)* (movements_performed_h[0]?1:0) * ((sum_gaps_h[0]?sum_gaps_h[0]:1) + sum_points_h[0]*2);
-						std::cout << "Score: " << ia_score[i] << std::endl;
+						ia_score[i] = (sum_gaps_h[0]?1:0)* (movements_performed_h[0]?1:0) * ((sum_gaps_h[0]?sum_gaps_h[0]:1) + sum_points_h[0]*10);
 						//BORRAR LO USADO
 						setValue << <1, n_elementos, 0 >> > (sum_points_d, n_elementos, 0);
 						setValue << <1, n_elementos, 0 >> > (movements_performed_d,n_elementos, 0);
@@ -859,7 +955,15 @@ int main(int argc, char **argv) {
 					check_CUDA_Error("DECISIONES V");
 					cpyMatrix << <1, n_elementos, 0 >> > (decisions_d, decisions_cpy_d, n_elementos);
 					check_CUDA_Error("CPIA DECISIONES");
-					moveV << <1, n_elementos, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas, n_filas);
+					setValue << <1, n_elementos, 0 >> > (jumps_d, n_elementos, 0);
+					setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+					setValue << <1, n_elementos, 0 >> > (delete_mask_d, n_elementos, 0);
+					createDeleterV << <1, n_elementos, 0 >> > (tablero_d, decisions_d, delete_mask_d, n_elementos, n_columnas);
+					deleteValues << <1, n_elementos, 0 >> > (tablero_d, delete_mask_d, decisions_d, n_elementos);
+					zeroCountV << <1, n_elementos, 0 >> > (tablero_d, jumps_d, n_elementos, n_columnas);
+					setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+					moveV << <1, n_elementos, 0 >> > (tablero_d, jumps_d, tablero_aux_d, n_elementos, n_columnas);
+					cpyMatrix << <1, n_elementos, 0 >> > (tablero_aux_d, tablero_d, n_elementos);
 					check_CUDA_Error("MOVE V");
 					break;
 				case KEY_LEFT:
@@ -867,7 +971,15 @@ int main(int argc, char **argv) {
 					check_CUDA_Error("DECISIONES H");
 					cpyMatrix << <1, n_elementos, 0 >> > (decisions_d, decisions_cpy_d, n_elementos);
 					check_CUDA_Error("CPIA DECISIONES");
-					moveH << <1, n_elementos, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas);
+					setValue << <1, n_elementos, 0 >> > (jumps_d, n_elementos, 0);
+					setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+					setValue << <1, n_elementos, 0 >> > (delete_mask_d, n_elementos, 0);
+					createDeleterH << <1, n_elementos, 0 >> > (tablero_d, decisions_d, delete_mask_d, n_elementos);
+					deleteValues << <1, n_elementos, 0 >> > (tablero_d, delete_mask_d, decisions_d, n_elementos);
+					zeroCountH << <1, n_elementos, 0 >> > (tablero_d, jumps_d, n_elementos, n_columnas);
+					setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+					moveH << <1, n_elementos, 0 >> > (tablero_d, jumps_d, tablero_aux_d, n_elementos, n_columnas);
+					cpyMatrix << <1, n_elementos, 0 >> > (tablero_aux_d, tablero_d, n_elementos);
 					check_CUDA_Error("MOVE H");
 					break;
 				case KEY_DOWN:
@@ -877,7 +989,15 @@ int main(int argc, char **argv) {
 					check_CUDA_Error("DECISIONES V");
 					cpyMatrix << <1, n_elementos, 0 >> > (decisions_d, decisions_cpy_d, n_elementos);
 					check_CUDA_Error("CPIA DECISIONES");
-					moveV << <1, n_elementos, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas, n_filas);
+					setValue << <1, n_elementos, 0 >> > (jumps_d, n_elementos, 0);
+					setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+					setValue << <1, n_elementos, 0 >> > (delete_mask_d, n_elementos, 0);
+					createDeleterV << <1, n_elementos, 0 >> > (tablero_d, decisions_d, delete_mask_d, n_elementos, n_columnas);
+					deleteValues << <1, n_elementos, 0 >> > (tablero_d, delete_mask_d, decisions_d, n_elementos);
+					zeroCountV << <1, n_elementos, 0 >> > (tablero_d, jumps_d, n_elementos, n_columnas);
+					setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+					moveV << <1, n_elementos, 0 >> > (tablero_d, jumps_d, tablero_aux_d, n_elementos, n_columnas);
+					cpyMatrix << <1, n_elementos, 0 >> > (tablero_aux_d, tablero_d, n_elementos);
 					check_CUDA_Error("MOVE V");
 					flipV << <1, n_elementos, 0 >> > (tablero_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("FILIP V");
@@ -889,8 +1009,16 @@ int main(int argc, char **argv) {
 					check_CUDA_Error("DECISIONES H");
 					cpyMatrix << <1, n_elementos, 0 >> > (decisions_d, decisions_cpy_d, n_elementos);
 					check_CUDA_Error("CPIA DECISIONES");
-					moveH << <1, n_elementos, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas);
+					setValue << <1, n_elementos, 0 >> > (jumps_d, n_elementos, 0);
+					setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+					setValue << <1, n_elementos, 0 >> > (delete_mask_d, n_elementos, 0);
+					createDeleterH << <1, n_elementos, 0 >> > (tablero_d, decisions_d, delete_mask_d, n_elementos);
+					deleteValues << <1, n_elementos, 0 >> > (tablero_d, delete_mask_d, decisions_d, n_elementos);
+					zeroCountH << <1, n_elementos, 0 >> > (tablero_d, jumps_d, n_elementos, n_columnas);
+					setValue << <1, n_elementos, 0 >> > (tablero_aux_d, n_elementos, 0);
+					moveH << <1, n_elementos, 0 >> > (tablero_d, jumps_d, tablero_aux_d, n_elementos, n_columnas);
 					check_CUDA_Error("MOVE H");
+					cpyMatrix << <1, n_elementos, 0 >> > (tablero_aux_d, tablero_d, n_elementos);
 					flipH << <1, n_elementos, 0 >> > (tablero_d, n_elementos, n_columnas);
 					check_CUDA_Error("FILIP H");
 					break;
@@ -919,6 +1047,12 @@ int main(int argc, char **argv) {
 				HANDLE_ERROR(cudaMemcpy(movements_left_h, movements_left_d, size_elementos, cudaMemcpyDeviceToHost));
 				if ((sum_gaps_h[0] <= 0) && (movements_left_h[0] <= 0)) {//No quedan movimentos
 					--lives;
+					system("cls");//BORRADO DE LA PANTALLA
+					std::cout << sidebar << std::endl;
+					std::cout << "Round: " << round << spaces << "Lives :" << lives << std::endl;
+					std::cout << "Score: " << score[lives - 1] << std::endl;
+					std::cout << sidebar << std::endl;
+					std::cout << printTablero<float>(tablero_h, n_columnas, n_filas) << std::endl;
 					std::cout << sidebar << std::endl;
 					std::cout << "Lives:" << lives << std::endl;
 					std::cout << "TotalScore: " << sumArray(score, LIVES) << std::endl;
@@ -1005,6 +1139,9 @@ int main(int argc, char **argv) {
 				free(decisions_cpy_h);
 				free(ia_tablero_h);
 				free(ia_decisions_h);
+				free(jumps_h);
+				free(tablero_aux_h);
+				free(delete_mask_h);
 				HANDLE_ERROR(cudaFree(tablero_d));
 				HANDLE_ERROR(cudaFree(decisions_d));
 				HANDLE_ERROR(cudaFree(sum_points_d));
@@ -1016,6 +1153,9 @@ int main(int argc, char **argv) {
 				HANDLE_ERROR(cudaFree(decisions_cpy_d));
 				HANDLE_ERROR(cudaFree(ia_tablero_d));
 				HANDLE_ERROR(cudaFree(ia_decisions_d));
+				HANDLE_ERROR(cudaFree(jumps_d));
+				HANDLE_ERROR(cudaFree(tablero_aux_d));
+				HANDLE_ERROR(cudaFree(delete_mask_d));
 				//Actualización de tamaños de los vectores
 				tablero_h = (float*)malloc(size_elementos);
 				decisions_h = (float*)malloc(size_elementos);
@@ -1028,6 +1168,9 @@ int main(int argc, char **argv) {
 				decisions_cpy_h = (float*)malloc(size_elementos);
 				ia_tablero_h = (float*)malloc(size_elementos);
 				ia_decisions_h = (float*)malloc(size_elementos);
+				jumps_h = (float*)malloc(size_elementos);
+				tablero_aux_h = (float*)malloc(size_elementos);
+				delete_mask_h = (float*)malloc(size_elementos);
 				HANDLE_ERROR(cudaMalloc((void **)&tablero_d, size_elementos));
 				HANDLE_ERROR(cudaMalloc((void **)&decisions_d, size_elementos));
 				HANDLE_ERROR(cudaMalloc((void **)&sum_points_d, size_elementos));
@@ -1039,6 +1182,9 @@ int main(int argc, char **argv) {
 				HANDLE_ERROR(cudaMalloc((void **)&decisions_cpy_d, size_elementos));
 				HANDLE_ERROR(cudaMalloc((void **)&ia_tablero_d, size_elementos));
 				HANDLE_ERROR(cudaMalloc((void **)&ia_decisions_d, size_elementos));
+				HANDLE_ERROR(cudaMalloc((void **)&jumps_d, size_elementos));
+				HANDLE_ERROR(cudaMalloc((void **)&tablero_aux_d, size_elementos));
+				HANDLE_ERROR(cudaMalloc((void **)&delete_mask_d, size_elementos));
 				memset(tablero_h, 0, size_elementos);
 				memset(decisions_h, 0, size_elementos);
 				memset(sum_points_h, 0, size_elementos);
@@ -1050,11 +1196,37 @@ int main(int argc, char **argv) {
 				memset(decisions_cpy_h, 0, size_elementos);
 				memset(ia_tablero_h, 0, size_elementos);
 				memset(ia_decisions_h, 0, size_elementos);
+				memset(jumps_h, 0, size_elementos);
+				memset(tablero_aux_h, 0, size_elementos);
+				memset(delete_mask_h, 0, size_elementos);
 				sidebar = replicateString("\xC4", static_cast<int>(n_columnas)*6+1);
 				spaces = replicateString(" ", n_columnas);
 				//Carga los datos del nuevo tablero
 				for (int i = 0; i < n_elementos; ++i) {
 					in >> tablero_h[i];
+				}
+				if (SCALE) {
+					if (n_elementos <= 16) {
+						font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {40,58},FF_DONTCARE,FW_NORMAL };
+					}
+					else if (n_elementos <= 64) {
+						font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {24,32},FF_DONTCARE,FW_NORMAL };
+					}
+					else if (n_elementos <= 256) {
+						font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {12,20},FF_DONTCARE,FW_NORMAL };
+					}
+					else if (n_elementos <= 1024) {
+						font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {8,14},FF_DONTCARE,FW_NORMAL };
+					}
+					else if (n_elementos <= 3200) {
+						font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {6,9},FF_DONTCARE,FW_NORMAL };
+					}
+					else {
+						font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {4,6},FF_DONTCARE,FW_NORMAL };
+					}
+					SetCurrentConsoleFontEx(GetStdHandle(STD_OUTPUT_HANDLE), true, &font); //Control de la fuente
+					ShowWindow(GetConsoleWindow(), SW_RESTORE);//Consola en pantalla completa
+					ShowWindow(GetConsoleWindow(), SW_MAXIMIZE);//Consola en pantalla completa
 				}
 				//Datos de inicio de nueva partida
 				system("cls");
@@ -1067,6 +1239,12 @@ int main(int argc, char **argv) {
 				std::cout << sidebar << std::endl;
 				std::cout << printTablero(tablero_h, n_columnas, n_filas) << std::endl;
 				std::cout << sidebar << std::endl;
+				if (n_elementos > prop.maxThreadsPerBlock) {
+					std::cout << "La matriz es demasiado grande!!!" << std::endl;
+					std::cout << "Press any key to continue" << std::endl;
+					getch();
+					exit(-1);
+				}
 				std::cout << "Matriz cargada, puede seguir jugando" << std::endl;
 				std::cout << sidebar << std::endl;
 			} else {
@@ -1085,6 +1263,9 @@ int main(int argc, char **argv) {
 		memset(decisions_cpy_h, 0, size_elementos);
 		memset(ia_tablero_h, 0, size_elementos);
 		memset(ia_decisions_h, 0, size_elementos);
+		memset(jumps_h, 0, size_elementos);
+		memset(tablero_aux_h, 0, size_elementos);
+		memset(delete_mask_h, 0, size_elementos);
 	} while (movement_to_perform!='e' && (lives > 0));
 	//PUNTUACION DE TODAS LAS PARTIDAS
 	int total_score = 0;
@@ -1127,6 +1308,9 @@ int main(int argc, char **argv) {
 	free(decisions_cpy_h);
 	free(ia_tablero_h);
 	free(ia_decisions_h);
+	free(jumps_h);
+	free(tablero_aux_h);
+	free(delete_mask_h);
 	HANDLE_ERROR(cudaFree(tablero_d));
 	HANDLE_ERROR(cudaFree(decisions_d));
 	HANDLE_ERROR(cudaFree(sum_points_d));
@@ -1138,6 +1322,9 @@ int main(int argc, char **argv) {
 	HANDLE_ERROR(cudaFree(decisions_cpy_d));
 	HANDLE_ERROR(cudaFree(ia_tablero_d));
 	HANDLE_ERROR(cudaFree(ia_decisions_d));
+	HANDLE_ERROR(cudaFree(jumps_d));
+	HANDLE_ERROR(cudaFree(tablero_aux_d));
+	HANDLE_ERROR(cudaFree(delete_mask_d));
 	getch(); //Para evitar que se cierre la ventana
 	return(0);
 }

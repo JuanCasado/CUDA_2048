@@ -26,6 +26,7 @@
 #define KEY_RIGHT 77
 #define LIVES 5//CANTIDAD DE VIDAS
 #define RANDOM_IA 0//MODO DE LA IA
+#define SCALE 1
 //COLORES
 #define RESET "\033[0m"
 #define Red "\033[1;31m"      
@@ -82,18 +83,13 @@ Convierte la matriz en su simétrica por el eje Vertical
 La matriz es tanto de entrada como de salida
 Se utiliza para hacer el movimiento horizonal a la derecha
 */
-__global__ void flipH (float *tablero, int size, int nc, int nf) {
-	int id = threadIdx.x + blockIdx.y * nc;
-	int colum = id % nc;
-	int row = id / nc;
-	int look = (nc - colum - 1) + row * nc;
-	float value = 0;
-	if ((look < size) && (threadIdx.x < nc) && (threadIdx.y < nf)) {
-		value = tablero[look];
-	}
-	__syncthreads();
-	if ((id < size) && (look < size) && (threadIdx.x < nc) && (threadIdx.y < nf)) {
-		tablero[id] = value;
+__global__ void flipH (float *tablero, float *flip, int size, int nc, int nf) {
+	int col = threadIdx.x + blockIdx.x * blockDim.x;
+	int row = threadIdx.y + blockIdx.y * blockDim.y;
+	int id = col + row * nc;
+	int look = (nc - col - 1) + row * nc;
+	if ((id < size) && (look < size) && (col < nc) && (row < nf)) {
+		flip[id] = tablero[look];
 	}
 }
 /*
@@ -101,123 +97,42 @@ Convierte la matriz en su simétrica por el eje Horizontal
 La matriz es tanto de entrada como de salida
 Se utiliza para hacer el movimiento vertical hacia abajo
 */
-__global__ void flipV(float *tablero, int size, int nc, int nf) {
-	int id = threadIdx.x;
-	int colum = id % nc;
-	int row = id / nc;
-	int look = colum + (nf - row - 1) * nc;
-	float value = 0;
-	if (look < size) {
-		value = tablero[look];
-	}
-	__syncthreads();
-	if ((id < size) && (look < size)) {
-		tablero[id] = value;
+__global__ void flipV(float *tablero, float *flip, int size, int nc, int nf) {
+	int col = threadIdx.x + blockIdx.x * blockDim.x;
+	int row = threadIdx.y + blockIdx.y * blockDim.y;
+	int id = col + row * nc;
+	int look = col + (nf - row - 1) * nc;
+	if ((id < size) && (look < size) && (col < nc) && (row < nf)) {
+		flip[id] = tablero[look];
 	}
 }
 
 /*
 Realiza los el movimiento horizontal (izquierda) en el tablero según la matriz de decisiones
-La matriz tablero es de entrada y salida
-La matriz de decisiones queda destruida cuando se realiza el movimiento
+La matriz de decisiones queda destruida cuando se realizan todos los movimientos
 Las decisiones indican a los hilos como comportarse, es decir, si deben sumarse o no,
 con ello se evita que cuatro números iguales seguidos se sumen en uno solo, quedarían en dos iguales contiguos o
 se logra que cuando hay tres número iguales se respete el orden de su suma
 */
-__global__ void moveH(float *tablero, float *decisions, int size, int nc) {
-	int id = threadIdx.x;
-	int colum = id % nc;
-	bool tiene_izquierda = colum != 0; //Si el número NO tiene izquierda no debe hacer nada
-	float izquierda = 0;
-	float propio = 0;
-	float decision = 0;
-	for (int i = 0; i < (nc - 1); ++i) {//Iteraciones mínimar para garantizar completitud
-		__syncthreads();//LECTURA DE DATOS
-		if (tiene_izquierda) {
-			if (id < size) {
-				izquierda = tablero[id - 1];
-				propio = tablero[id];
-				decision = decisions[id];
-			}
-		}
-		__syncthreads();//ACTUACIÓN
-		if (tiene_izquierda) {
-			if (decision == 0) {
-				if ((izquierda == 0) && (propio!=0)) {
-					if (id < size) {
-						tablero[id - 1] = propio;
-						tablero[id] = 0;
-					}
-				}
-			} else {
-				if (izquierda == 0) {
-					if (id < size) {
-						tablero[id - 1] = propio;
-						decisions[id - 1] = decision;
-						tablero[id] = 0;
-					}
-				}
-				if (izquierda == propio) {
-					if (id < size) {
-						tablero[id - 1] = propio * 2;
-						decisions[id] = 0;
-						tablero[id] = 0;
-					}
-				}
-			}
-		}
-	}
+__global__ void moveH(float *tablero, float *decisions, float *result, int size, int nc, int nf) {
+	int col = threadIdx.x + blockIdx.x * blockDim.x;
+	int row = threadIdx.y + blockIdx.y * blockDim.y;
+	int id = col + row * nc;
+	
 }
 
 /*
 Realiza los el movimiento verical (arriba) en el tablero según la matriz de decisiones
-La matriz tablero es de entrada y salida
-La matriz de decisiones queda destruida cuando se realiza el movimiento
+La matriz de decisiones queda destruida cuando se realizan todos los movimientos
 Las decisiones indican a los hilos como comportarse, es decir, si deben sumarse o no,
 con ello se evita que cuatro números iguales seguidos se sumen en uno solo, quedarían en dos iguales contiguos o
 se logra que cuando hay tres número iguales se respete el orden de su suma
 */
-__global__ void moveV(float *tablero, float *decisions, int size, int nc, int nf) {
-	int id = threadIdx.x;
-	int row = id / nc;
-	bool tiene_arriba = row != 0; //Si el número NO tiene arriba no debe hacer nada
-	float arriba = 0;
-	float propio = 0;
-	float decision = 0;
-	for (int i = 0; i < (nf - 1); ++i) {//Iteraciones mínimar para garantizar completitud
-		__syncthreads();//LECTURA DE DATOS
-		if (tiene_arriba) {
-			arriba = tablero[id - nc];
-			propio = tablero[id];
-			decision = decisions[id];
-		}
-		__syncthreads();//ACTUACIÓN
-		if (tiene_arriba) {
-			if (decision == 0) {
-				if ((arriba == 0) && (propio != 0)) {
-					if (id < size) {
-						tablero[id - nc] = propio;
-						tablero[id] = 0;
-					}
-				}
-			} else {
-				if (arriba == 0) {
-					if (id < size) {
-						tablero[id - nf] = propio;
-						decisions[id - nf] = decision;
-						tablero[id] = 0;
-					}
-				}
-				if (arriba == propio) {
-					if (id < size) {
-						tablero[id - nf] = propio * 2;
-						decisions[id] = 0;
-						tablero[id] = 0;
-					}
-				}
-			}
-		}
-	}
+__global__ void moveV(float *tablero, float *decisions, float *result, int size, int nc, int nf) {
+	int col = threadIdx.x + blockIdx.x * blockDim.x;
+	int row = threadIdx.y + blockIdx.y * blockDim.y;
+	int id = col + row * nc;
+	
 }
 
 /*
@@ -229,32 +144,34 @@ Se pondrá el valor a obtener en elementos que sumen con otro ocupan un lugar imp
 Tablero:    2222    400404
 Decisiones: 0404    000800
 */
-__global__ void takeDecisionsH(float *tablero, float *decisions,int size, int nc) {
-	int id = threadIdx.x;
+__global__ void takeDecisionsH(float *tablero, float *decisions,int size, int nc, int nf) {
+	int col = threadIdx.x + blockIdx.x * blockDim.x;
+	int row = threadIdx.y + blockIdx.y * blockDim.y;
+	int id = col + row * nc;
 	int index = id;
-	int colum_index = id % nc;
+	int colum_index = col;
 	float value = 0;
 	float new_value = 0;
 	bool perform_movement = false;
 	bool different_value_found = false;
-	if (id < size) {
+	if ((id < size) && (col < nc) && (row < nf)) {
 		value = tablero[id];
 	}
 	while ((colum_index > 0) && !different_value_found) {
 		--index;
 		--colum_index;
-		if (id < size) {
+		if ((id < size) && (col < nc) && (row < nf)) {
 			new_value = tablero[index];
-		}
-		if (new_value == value) {
-			perform_movement = !perform_movement;
-		}
-		if ((new_value != 0) && (new_value != value)) {
-			different_value_found = true;
+			if (new_value == value) {
+				perform_movement = !perform_movement;
+			}
+			if ((new_value != 0) && (new_value != value)) {
+				different_value_found = true;
+			}
 		}
 	}
 	if (perform_movement) {
-		if (id < size) {
+		if ((id < size) && (col < nc) && (row < nf)) {
 			decisions[id] = value * 2;
 		}
 	}
@@ -269,32 +186,34 @@ Se pondrá el valor a obtener en elementos que sumen con otro ocupan un lugar imp
 Tablero:    2222    400404
 Decisiones: 0404    000800
 */
-__global__ void takeDecisionsV(float *tablero, float *decisions,int size, int nc) {
-	int id = threadIdx.x;
+__global__ void takeDecisionsV(float *tablero, float *decisions,int size, int nc, int nf) {
+	int col = threadIdx.x + blockIdx.x * blockDim.x;
+	int row = threadIdx.y + blockIdx.y * blockDim.y;
+	int id = col + row * nc;
 	int index = id;
-	int row_index = id / nc;
+	int row_index = row;
 	float value = 0;
 	float new_value = 0;
 	bool perform_movement = false;
 	bool different_value_found = false;
-	if (id < size) {
+	if ((id < size) && (col < nc) && (row < nf)) {
 		value = tablero[id];
 	}
 	while ((row_index > 0) && !different_value_found) {
 		index -= nc;
 		--row_index;
-		if (id < size) {
+		if ((index < size) && (col < nc) && (row < nf)) {
 			new_value = tablero[index];
-		}
-		if (new_value == value) {
-			perform_movement = !perform_movement;
-		}
-		if ((new_value != 0) && (new_value != value)) {
-			different_value_found = true;
+			if (new_value == value) {
+				perform_movement = !perform_movement;
+			}
+			if ((new_value != 0) && (new_value != value)) {
+				different_value_found = true;
+			}
 		}
 	}
 	if (perform_movement) {
-		if (id < size) {
+		if ((id < size) && (col < nc) && (row < nf)) {
 			decisions[id] = value * 2;
 		}
 	}
@@ -306,16 +225,16 @@ Sumando el resultado de todos los unos sabremos si se pueden hacer movientos o n
 Cada hilo mira a sus cuatro elementos de los lados y al suyo
 */
 __global__ void  sumLeft(float* tablero, float* result,int size, int nc, int nf) {
-	int id = threadIdx.x;
-	int colum = id % nc;
-	int row = id / nc;
-	if (id < size) {
+	int col = threadIdx.x + blockIdx.x * blockDim.x;
+	int row = threadIdx.y + blockIdx.y * blockDim.y;
+	int id = col + row * nc;
+	if ((id < size) && (col < nc) && (row < nf)) {
 		result[id] = 0;
 		if (tablero[id]) {
-			if (((colum + 1) < nc) && (tablero[id] == tablero[id + 1])) {
+			if (((col + 1) < nc) && (tablero[id] == tablero[id + 1])) {
 				result[id] = 1;
 			}
-			if (((colum - 1) > 0) && (tablero[id] == tablero[id - 1])) {
+			if (((col - 1) > 0) && (tablero[id] == tablero[id - 1])) {
 				result[id] = 1;
 			}
 			if (((row + 1) < nf) && (tablero[id] == tablero[id + nc])) {
@@ -333,22 +252,24 @@ Suma todos los valores de una matriz sin destruir la entrada
 Utiliza el método de reducción binaria
 Utilizada para contar los puntos que se ganan con un mviento
 */
-__global__ void sumPoints(float *decisions, float *sum_result, int size, int max_steps) {
-	int id = threadIdx.x;
-	if (id < size) {
-		sum_result[id] = decisions[id];
+__global__ void sumPoints(float *decisions, float *sum_result, int size, int nc, int nf, int step) {
+	int col = threadIdx.x + blockIdx.x * blockDim.x;
+	int row = threadIdx.y + blockIdx.y * blockDim.y;
+	int id = col + row * nc;
+	if (step == 0){
+		if ((id < size) && (col < nc) && (row < nf)) {
+			sum_result[id] = decisions[id];
+		}
 	}
-	__syncthreads();
-	for (int step = 1; step < max_steps+1; ++step) {
-		int active_thread = powf(2, step);
-		int pair_id = powf(2, step - 1);
-		if (((id % active_thread) == 0) && ((id + pair_id) < size)) {
-			if (id < size) {
+	int active_thread = powf(2, step + 1);
+	int pair_id = powf(2, step);
+	if (((id % active_thread) == 0) && ((id + pair_id) < size)) {
+		if ((id < size) && (col < nc) && (row < nf)) {
+			if (((id + pair_id) < size) && (col < nc) && (row < nf)) {
 				float suma = sum_result[id] + sum_result[id + pair_id];
 				sum_result[id] = suma;
 			}
-		} 
-		__syncthreads();
+		}
 	}
 }
 
@@ -356,22 +277,24 @@ __global__ void sumPoints(float *decisions, float *sum_result, int size, int max
 Cuenta los elementos idénticos a 0 en una matriz
 Se utiliza para saber cuantos huecos quedan en el tablero
 */
-__global__ void sumGaps(float *decisions, float *sum_result, int size, int max_steps) {
-	int id = threadIdx.x;
-	if (id < size) {
-		sum_result[id] = (float)(decisions[id] == 0.0f);
+__global__ void sumGaps(float *decisions, float *sum_result, int size, int nc, int nf, int step) {
+	int col = threadIdx.x + blockIdx.x * blockDim.x;
+	int row = threadIdx.y + blockIdx.y * blockDim.y;
+	int id = col + row * nc;
+	if (step == 0) {
+		if ((id < size) && (col < nc) && (row < nf)) {
+			sum_result[id] = (float)(decisions[id] == 0.0f);
+		}
 	}
-	__syncthreads();
-	for (int step = 1; step < max_steps + 1; ++step) {
-		int active_thread = powf(2, step);
-		int pair_id = powf(2, step - 1);
-		if (((id % active_thread) == 0) && ((id + pair_id) < size)) {
-			if (id < size) {
+	int active_thread = powf(2, step + 1);
+	int pair_id = powf(2, step);
+	if (((id % active_thread) == 0) && ((id + pair_id) < size)) {
+		if ((id < size) && (col < nc) && (row < nf)) {
+			if (((id + pair_id) < size) && (col < nc) && (row < nf)) {
 				float suma = sum_result[id] + sum_result[id + pair_id];
 				sum_result[id] = suma;
 			}
 		}
-		__syncthreads();
 	}
 }
 
@@ -379,22 +302,24 @@ __global__ void sumGaps(float *decisions, float *sum_result, int size, int max_s
 Cuenta la cantidad de elementos distintos de 0 que hay en una matriz
 Se utiliza para saber si un moviento realiza cambios sobre el tablero
 */
-__global__ void sumMovements(float *decisions, float *sum_result, int size, int max_steps) {
-	int id = threadIdx.x;
-	if (id < size) {
-		sum_result[id] = (float)(decisions[id] != 0.0f);
+__global__ void sumMovements(float *decisions, float *sum_result, int size, int nc, int nf, int step) {
+	int col = threadIdx.x + blockIdx.x * blockDim.x;
+	int row = threadIdx.y + blockIdx.y * blockDim.y;
+	int id = col + row * nc;
+	if (step == 0) {
+		if ((id < size) && (col < nc) && (row < nf)) {
+			sum_result[id] = (float)(decisions[id] != 0.0f);
+		}
 	}
-	__syncthreads();
-	for (int step = 1; step < max_steps + 1; ++step) {
-		int active_thread = powf(2, step);
-		int pair_id = powf(2, step - 1);
-		if (((id % active_thread) == 0) && ((id + pair_id) < size)) {
-			if (id < size) {
+	int active_thread = powf(2, step + 1);
+	int pair_id = powf(2, step);
+	if (((id % active_thread) == 0) && ((id + pair_id) < size)) {
+		if ((id < size) && (col < nc) && (row < nf)) {
+			if (((id + pair_id) < size) && (col < nc) && (row < nf)) {
 				float suma = sum_result[id] + sum_result[id + pair_id];
 				sum_result[id] = suma;
 			}
 		}
-		__syncthreads();
 	}
 }
 
@@ -403,9 +328,11 @@ Copia el contenido de una matriz en otra
 Se utiliza para no perder la matriz de decisiones al hacer un movimiento y
 para guardar el tablero y comprobar si despés de un moviento ha cambiado
 */
-__global__ void cpyMatrix(float *matriz, float *copia, int size) {
-	int id = threadIdx.x;
-	if (id < size) {
+__global__ void cpyMatrix(float *matriz, float *copia, int size, int nc, int nf) {
+	int col = threadIdx.x + blockIdx.x * blockDim.x;
+	int row = threadIdx.y + blockIdx.y * blockDim.y;
+	int id = col + row * nc;
+	if ((id < size) && (col < nc) && (row < nf)) {
 		copia[id] = matriz[id];
 	}
 }
@@ -414,10 +341,12 @@ __global__ void cpyMatrix(float *matriz, float *copia, int size) {
 Comprueba si la matriz primera es igual a la segunada y pone el resultado en la segunada
 Se utiliza para saber si el tablero ha cambiado
 */
-__global__ void hasChanged(float *matriz, float *copia, int size) {
-	int id = threadIdx.x;
+__global__ void hasChanged (float *matriz, float *copia, int size, int nc, int nf) {
+	int col = threadIdx.x + blockIdx.x * blockDim.x;
+	int row = threadIdx.y + blockIdx.y * blockDim.y;
+	int id = col + row * nc;
 	float resultado = 0;
-	if (id < size) {
+	if ((id < size) && (col < nc) && (row < nf)) {
 		resultado = (matriz[id] == copia[id]);
 		copia[id] = resultado;
 	}
@@ -426,9 +355,11 @@ __global__ void hasChanged(float *matriz, float *copia, int size) {
 /*
 Pone todos los elemntos de la matriz al valor indicado
 */
-__global__ void setValue(float *matriz, int size, float value) {
-	int id = threadIdx.x;
-	if (id < size) {
+__global__ void setValue(float *matriz, int size, int nc, int nf, float value) {
+	int col = threadIdx.x + blockIdx.x * blockDim.x;
+	int row = threadIdx.y + blockIdx.y * blockDim.y;
+	int id = col + row * nc;
+	if ((id < size) && (col < nc) && (row < nf)) {
 		matriz[id] = value;
 	}
 }
@@ -561,9 +492,10 @@ __host__ int conversionPotencia(int value) {
 
 
 int main(int argc, char **argv) {
-	CONSOLE_FONT_INFOEX font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {8,14},FF_DONTCARE,FW_NORMAL};
-	SetCurrentConsoleFontEx(GetStdHandle(STD_OUTPUT_HANDLE) ,true,&font); //Control de la fuente
-	ShowWindow(GetConsoleWindow(), SW_MAXIMIZE);//Consola en pantalla completa
+	CONSOLE_FONT_INFOEX font;
+	font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {15,21},FF_DONTCARE,FW_NORMAL };
+	SetCurrentConsoleFontEx(GetStdHandle(STD_OUTPUT_HANDLE), true, &font); //Control de la fuente
+	ShowWindow(GetConsoleWindow(), SW_SHOWMAXIMIZED);//Consola en pantalla completa
 	std::srand(static_cast<int>(time(0)));
 	float *tablero_h;//Almacena la posicion de las fichas
 	float *tablero_d;
@@ -588,6 +520,12 @@ int main(int argc, char **argv) {
 	float *ia_tablero_d;
 	float *ia_decisions_h;
 	float *ia_decisions_d;
+	float *flip_aux_h;//Matriz auxiliar para los volteos
+	float *flip_aux_d;
+	float *movements_aux_h;//Auxiliar de los movimientos
+	float *movements_aux_d;
+	float *decisions_aux_h;//Auxiliar de las decisiones
+	float *decisions_aux_d;
 	//Datos de tablero
 	int n_filas;
 	int n_columnas;
@@ -660,7 +598,7 @@ int main(int argc, char **argv) {
 	size_elementos = sizeof(float) * n_elementos;
 	max_recursion = static_cast<int>(std::ceil(std::log2(n_elementos)));
 	int TILE = min(conversionPotencia(n_elementos), conversionPotencia(prop.maxThreadsPerBlock));
-	dim3 dimGrid(n_columnas / TILE, n_filas / TILE);
+	dim3 dimGrid(ceil(static_cast<float>(n_columnas) / static_cast<float>(TILE)), ceil(static_cast<float>(n_filas) / static_cast<float>(TILE)));
 	dim3 dimBlock(TILE, TILE);
 	sidebar = replicateString("\xC4", static_cast<int>(n_columnas) * 6 + 1);
 	spaces = replicateString(" ", n_columnas);
@@ -668,8 +606,8 @@ int main(int argc, char **argv) {
 	std::cout << std::endl;
 	std::cout << "Columnas : " << n_columnas << " | Filas: " << n_filas << " -> Elementos: " << n_elementos << " | Max recursion: " << max_recursion << std::endl;
 	std::cout << "BloquesX : " << dimGrid.x << " | BloquesY: " << dimGrid.y << " -> TILE: " << TILE << std::endl;
-	std::cout << "Modo: " << ((modo_ejecucion == 'a') ? "automatico" : "manual") << " | Gasto de hilos: " << (n_elementos - (dimGrid.x*dimGrid.y*TILE*TILE)) << std::endl << std::endl;
-	if (n_elementos > prop.maxThreadsPerBlock) {
+	std::cout << "Modo: " << ((modo_ejecucion == 'a') ? "automatico" : "manual") << " | Gasto de hilos: " << (static_cast<int>(dimGrid.x*dimGrid.y*TILE*TILE) - n_elementos) << std::endl << std::endl;
+	if (n_elementos > (prop.maxThreadsPerBlock*prop.maxThreadsPerMultiProcessor*prop.multiProcessorCount)) {
 		std::cout << "La matriz es demasiado grande!!!" << std::endl;
 		std::cout << "Press any key to continue" << std::endl;
 		getch();
@@ -677,6 +615,28 @@ int main(int argc, char **argv) {
 	}
 	std::cout << "Press any key to continue" << std::endl;
 	getch();//SE PONE PARA QUE SE VENA LOS DATOS ANTES DE INICIAR EL JUEGO
+	system("cls");
+	if (SCALE) {
+		if (n_elementos <= 16) {
+			font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {40,58},FF_DONTCARE,FW_NORMAL };
+		}
+		else if (n_elementos <= 64) {
+			font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {24,32},FF_DONTCARE,FW_NORMAL };
+		}
+		else if (n_elementos <= 256) {
+			font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {12,20},FF_DONTCARE,FW_NORMAL };
+		}
+		else if (n_elementos <= 1024) {
+			font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {8,14},FF_DONTCARE,FW_NORMAL };
+		} else if (n_elementos <= 3200) {
+			font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {6,9},FF_DONTCARE,FW_NORMAL };
+		} else{
+			font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {4,6},FF_DONTCARE,FW_NORMAL };
+		}
+		SetCurrentConsoleFontEx(GetStdHandle(STD_OUTPUT_HANDLE), true, &font); //Control de la fuente
+		ShowWindow(GetConsoleWindow(), SW_RESTORE);//Consola en pantalla completa
+		ShowWindow(GetConsoleWindow(), SW_SHOWMAXIMIZED);//Consola en pantalla completa
+	}
 	//Reserva de memoria
 	tablero_h = (float*)malloc(size_elementos);
 	decisions_h = (float*)malloc(size_elementos);
@@ -689,6 +649,9 @@ int main(int argc, char **argv) {
 	decisions_cpy_h = (float*)malloc(size_elementos);
 	ia_tablero_h = (float*)malloc(size_elementos);
 	ia_decisions_h = (float*)malloc(size_elementos);
+	flip_aux_h = (float*)malloc(size_elementos);
+	movements_aux_h = (float*)malloc(size_elementos);
+	decisions_aux_h = (float*)malloc(size_elementos);
 	HANDLE_ERROR(cudaMalloc((void **)&tablero_d, size_elementos));
 	HANDLE_ERROR(cudaMalloc((void **)&decisions_d, size_elementos));
 	HANDLE_ERROR(cudaMalloc((void **)&sum_points_d, size_elementos));
@@ -700,6 +663,9 @@ int main(int argc, char **argv) {
 	HANDLE_ERROR(cudaMalloc((void **)&decisions_cpy_d, size_elementos));
 	HANDLE_ERROR(cudaMalloc((void **)&ia_tablero_d, size_elementos));
 	HANDLE_ERROR(cudaMalloc((void **)&ia_decisions_d, size_elementos));
+	HANDLE_ERROR(cudaMalloc((void **)&flip_aux_d, size_elementos));
+	HANDLE_ERROR(cudaMalloc((void **)&movements_aux_d, size_elementos));
+	HANDLE_ERROR(cudaMalloc((void **)&decisions_aux_d, size_elementos));
 	//Asignación inicial de memoria
 	memset(tablero_h, 0, size_elementos);
 	memset(decisions_h, 0, size_elementos);
@@ -712,6 +678,9 @@ int main(int argc, char **argv) {
 	memset(decisions_cpy_h, 0, size_elementos);
 	memset(ia_tablero_h, 0, size_elementos);
 	memset(ia_decisions_h, 0, size_elementos);
+	memset(flip_aux_h, 0, size_elementos);
+	memset(movements_aux_h, 0, size_elementos);
+	memset(decisions_aux_h, 0, size_elementos);
 	memset(score, 0, sizeof(int)*LIVES);
 	addRandom<float>(tablero_h, elementos_iniciales, n_elementos);
 	do {//BUCLE DE JUEGO
@@ -742,7 +711,10 @@ int main(int argc, char **argv) {
 			HANDLE_ERROR(cudaMemcpy(tablero_cpy_d, decisions_cpy_h, size_elementos, cudaMemcpyHostToDevice));
 			HANDLE_ERROR(cudaMemcpy(decisions_cpy_d, decisions_cpy_h, size_elementos, cudaMemcpyHostToDevice));
 			HANDLE_ERROR(cudaMemcpy(ia_tablero_d, ia_tablero_h, size_elementos, cudaMemcpyHostToDevice));
-			HANDLE_ERROR(cudaMemcpy(ia_tablero_d, ia_decisions_h, size_elementos, cudaMemcpyHostToDevice));
+			HANDLE_ERROR(cudaMemcpy(ia_decisions_d, ia_decisions_h, size_elementos, cudaMemcpyHostToDevice));
+			HANDLE_ERROR(cudaMemcpy(flip_aux_d, flip_aux_h, size_elementos, cudaMemcpyHostToDevice));
+			HANDLE_ERROR(cudaMemcpy(movements_aux_d, movements_aux_h, size_elementos, cudaMemcpyHostToDevice));
+			HANDLE_ERROR(cudaMemcpy(decisions_aux_d, decisions_aux_h, size_elementos, cudaMemcpyHostToDevice));
 			if (modo_ejecucion == 'm') {
 				movement_to_perform = getch();
 			} else {//IA
@@ -765,81 +737,129 @@ int main(int argc, char **argv) {
 					int ia_score[4];
 					memset(ia_score, 0, sizeof(int)*4);
 					for (int i = 0; i < 4; ++i) {
-						cpyMatrix << <1, n_elementos, 0 >> > (tablero_d, ia_tablero_d, n_elementos);
+						cpyMatrix << <dimGrid, dimBlock, 0 >> > (tablero_d, ia_tablero_d, n_elementos, n_columnas, n_filas);
 						check_CUDA_Error("COPIA TABLERO IA");
-						cpyMatrix << <1, n_elementos, 0 >> > (tablero_d, tablero_cpy_d, n_elementos);
+						cpyMatrix << <dimGrid, dimBlock, 0 >> > (tablero_d, tablero_cpy_d, n_elementos, n_columnas, n_filas);
 						check_CUDA_Error("COPIA DECISIONES IA");
 						switch (i) {//REALIZAR EL MOVIMENTO
 						case 0:
-							takeDecisionsV << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, n_elementos, n_columnas);
+							takeDecisionsV << <dimGrid, dimBlock, 0 >> > (ia_tablero_d, ia_decisions_d, n_elementos, n_columnas, n_filas);
 							check_CUDA_Error("DECISIONES V");
-							cpyMatrix << <1, n_elementos, 0 >> > (ia_decisions_d, decisions_cpy_d, n_elementos);
+							cpyMatrix << <dimGrid, dimBlock, 0 >> > (ia_decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
 							check_CUDA_Error("CPY");
-							moveV << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, n_elementos, n_columnas, n_filas);
-							check_CUDA_Error("MOVE V");
+							for (int e = 0; e < n_columnas; ++e) {
+								setValue << <dimGrid, dimBlock, 0 >> > (movements_aux_d, n_elementos, n_columnas, n_filas, 0);
+								check_CUDA_Error("SET 0");
+								setValue << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, n_elementos, n_columnas, n_filas, 0);
+								check_CUDA_Error("SET 0");
+								moveV << <dimGrid, dimBlock, 0 >> > (ia_tablero_d, movements_aux_d, ia_decisions_d, decisions_aux_d, n_elementos, n_columnas, n_filas);
+								check_CUDA_Error("MOVE V");
+								cpyMatrix << <dimGrid, dimBlock, 0 >> > (movements_aux_d, ia_tablero_d, n_elementos, n_columnas, n_filas);
+								check_CUDA_Error("CPY");
+								cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, ia_decisions_d, n_elementos, n_columnas, n_filas);
+								check_CUDA_Error("CPY");
+							}
 							break;
 						case 1:
-							takeDecisionsH << <1, n_elementos, 1 >> > (ia_tablero_d, ia_decisions_d, n_elementos, n_columnas);
+							takeDecisionsH << <dimGrid, dimBlock, 0 >> > (ia_tablero_d, ia_decisions_d, n_elementos, n_columnas, n_filas);
 							check_CUDA_Error("DECISIONES H");
-							cpyMatrix << <1, n_elementos, 0 >> > (ia_decisions_d, decisions_cpy_d, n_elementos);
+							cpyMatrix << <dimGrid, dimBlock, 0 >> > (ia_decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
 							check_CUDA_Error("CPY");
-							moveH << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, n_elementos, n_columnas);
-							check_CUDA_Error("MOVE H");
+							for (int e = 0; e < n_columnas; ++e) {
+								setValue << <dimGrid, dimBlock, 0 >> > (movements_aux_d, n_elementos, n_columnas, n_filas, 0);
+								check_CUDA_Error("SET 0");
+								setValue << <dimGrid, dimBlock, 0 >> > (movements_aux_d, n_elementos, n_columnas, n_filas, 0);
+								check_CUDA_Error("SET 0");
+								moveH << <dimGrid, dimBlock, 0 >> > (ia_tablero_d, movements_aux_d, ia_decisions_d, decisions_aux_d, n_elementos, n_columnas, n_filas);
+								check_CUDA_Error("MOVE H");
+								cpyMatrix << <dimGrid, dimBlock, 0 >> > (movements_aux_d, ia_tablero_d, n_elementos, n_columnas, n_filas);
+								check_CUDA_Error("CPY");
+								cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, ia_decisions_d, n_elementos, n_columnas, n_filas);
+								check_CUDA_Error("CPY");
+							}
 							break;
 						case 2:
-							flipV << <1, n_elementos, 0 >> > (ia_tablero_d, n_elementos, n_columnas, n_filas);
+							flipV << <dimGrid, dimBlock, 0 >> > (ia_tablero_d, flip_aux_d, n_elementos, n_columnas, n_filas);
 							check_CUDA_Error("FILIP V");
-							takeDecisionsV << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, n_elementos, n_columnas);
+							takeDecisionsV << <dimGrid, dimBlock, 0 >> > (flip_aux_d, ia_decisions_d, n_elementos, n_columnas, n_filas);
 							check_CUDA_Error("DECISIONES V");
-							cpyMatrix << <1, n_elementos, 0 >> > (ia_decisions_d, decisions_cpy_d, n_elementos);
+							cpyMatrix << <dimGrid, dimBlock, 0 >> > (ia_decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
 							check_CUDA_Error("CPY");
-							moveV << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, n_elementos, n_columnas, n_filas);
-							check_CUDA_Error("MOVE V");
-							flipV << <1, n_elementos, 0 >> > (ia_tablero_d, n_elementos, n_columnas, n_filas);
+							for (int e = 0; e < n_filas; ++e) {
+								setValue << <dimGrid, dimBlock, 0 >> > (movements_aux_d, n_elementos, n_columnas, n_filas, 0);
+								check_CUDA_Error("SET 0");
+								setValue << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, n_elementos, n_columnas, n_filas, 0);
+								check_CUDA_Error("SET 0");
+								moveV << <dimGrid, dimBlock, 0 >> > (flip_aux_d, movements_aux_d, ia_decisions_d, decisions_aux_d, n_elementos, n_columnas, n_filas);
+								check_CUDA_Error("MOVE V");
+								cpyMatrix << <dimGrid, dimBlock, 0 >> > (movements_aux_d, flip_aux_d, n_elementos, n_columnas, n_filas);
+								check_CUDA_Error("CPY");
+								cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, ia_decisions_d, n_elementos, n_columnas, n_filas);
+								check_CUDA_Error("CPY");
+							}
+							flipV << <dimGrid, dimBlock, 0 >> > (flip_aux_d, ia_tablero_d, n_elementos, n_columnas, n_filas);
 							check_CUDA_Error("FILIP V");
 							break;
 						case 3:
-							flipH << <dimGrid, dimBlock, 0 >> > (ia_tablero_d, n_elementos, n_columnas, n_filas);
+							flipH << <dimGrid, dimBlock, 0 >> > (ia_tablero_d, flip_aux_d, n_elementos, n_columnas, n_filas);
 							check_CUDA_Error("FILIP H");
-							takeDecisionsH << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, n_elementos, n_columnas);
+							takeDecisionsH << <dimGrid, dimBlock, 0 >> > (flip_aux_d, ia_decisions_d, n_elementos, n_columnas, n_elementos);
 							check_CUDA_Error("DECISIONES H");
-							cpyMatrix << <1, n_elementos, 0 >> > (ia_decisions_d, decisions_cpy_d, n_elementos);
+							cpyMatrix << <dimGrid, dimBlock, 0 >> > (ia_decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
 							check_CUDA_Error("CPY");
-							moveH << <1, n_elementos, 0 >> > (ia_tablero_d, ia_decisions_d, n_elementos, n_columnas);
-							check_CUDA_Error("MOVE H");
-							flipH << <dimGrid, dimBlock, 0 >> > (ia_tablero_d, n_elementos, n_columnas, n_filas);
+							for (int e = 0; e < n_columnas; ++e) {
+								setValue << <dimGrid, dimBlock, 0 >> > (movements_aux_d, n_elementos, n_columnas, n_filas, 0);
+								check_CUDA_Error("SET 0");
+								setValue << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, n_elementos, n_columnas, n_filas, 0);
+								check_CUDA_Error("SET 0");
+								moveH << <dimGrid, dimBlock, 0 >> > (flip_aux_d, movements_aux_d, ia_decisions_d, decisions_aux_d, n_elementos, n_columnas, n_filas);
+								check_CUDA_Error("MOVE H");
+								cpyMatrix << <dimGrid, dimBlock, 0 >> > (movements_aux_d, flip_aux_d, n_elementos, n_columnas, n_filas);
+								check_CUDA_Error("CPY");
+								cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, ia_decisions_d, n_elementos, n_columnas, n_filas);
+								check_CUDA_Error("CPY");
+							}
+							flipH << <dimGrid, dimBlock, 0 >> > (flip_aux_d, ia_tablero_d, n_elementos, n_columnas, n_filas);
 							check_CUDA_Error("FILIP H");
 							break;
 						}
 						check_CUDA_Error("MOVER");
 						//CALCULAR EL VALOR DE CADA MOVIENTO
-						sumMovements << <1, n_elementos, 0 >> > (decisions_cpy_d, sum_points_d, n_elementos, max_recursion);
-						check_CUDA_Error("SUM POINTS");
+						for (int step = 0; step < max_recursion; ++step) {
+							sumMovements << <dimGrid, dimBlock, 0 >> > (decisions_cpy_d, sum_points_d, n_elementos, n_columnas, n_filas, step);
+							check_CUDA_Error("SUM POINTS");
+						}
 						HANDLE_ERROR(cudaMemcpy(sum_points_h, sum_points_d, size_elementos, cudaMemcpyDeviceToHost));
 						//EVALUAR SI EL IA_TABLERO TIENE MOVIMIENTO Y SI DECISIONES_CPY ES BUENO O NO 
-						hasChanged << <1, n_elementos, 0 >> > (ia_tablero_d, tablero_cpy_d, n_elementos);
+						hasChanged << <dimGrid, dimBlock, 0 >> > (ia_tablero_d, tablero_cpy_d, n_elementos, n_filas, n_columnas);
 						check_CUDA_Error("HAS CHANGED");
-						sumGaps << <1, n_elementos, 0 >> > (tablero_cpy_d, movements_performed_d, n_elementos, max_recursion);
-						check_CUDA_Error("SUM GAPS");
+						for (int step = 0; step < max_recursion; ++step) {
+							sumGaps << <dimGrid, dimBlock, 0 >> > (tablero_cpy_d, movements_performed_d, n_elementos, n_columnas, n_filas, step);
+							check_CUDA_Error("SUM GAPS");
+						}
 						HANDLE_ERROR(cudaMemcpy(movements_performed_h, movements_performed_d, size_elementos, cudaMemcpyDeviceToHost));
 						//SUMA HUECOS
-						sumGaps << <1, n_elementos, 0 >> > (ia_tablero_d, sum_gaps_d, n_elementos, max_recursion);
-						check_CUDA_Error("SUMA HUECOS");
+						for (int step = 0; step < max_recursion; ++step) {
+							sumGaps << <dimGrid, dimBlock, 0 >> > (ia_tablero_d, sum_gaps_d, n_elementos, n_columnas, n_filas, step);
+							check_CUDA_Error("SUMA HUECOS");
+						}
 						HANDLE_ERROR(cudaMemcpy(sum_gaps_h, sum_gaps_d, size_elementos, cudaMemcpyDeviceToHost));
 						//QUEDAN MOVIMIENTOS?
-						sumLeft << <1, n_elementos, 0 >> > (tablero_d, movements_left_aux_d, n_elementos, n_columnas, n_filas);
+						sumLeft << <dimGrid, dimBlock, 0 >> > (tablero_d, movements_left_aux_d, n_elementos, n_columnas, n_filas);
 						check_CUDA_Error("MOVEMENTS LEFT AUX");
-						sumMovements << <1, n_elementos, 0 >> > (movements_left_aux_d, movements_left_d, n_elementos, max_recursion);
-						check_CUDA_Error("MOVEMENTS LEFT SUM");
+						for (int step = 0; step < max_recursion; ++step) {
+							sumMovements << <dimGrid, dimBlock, 0 >> > (movements_left_aux_d, movements_left_d, n_elementos, n_columnas, n_filas, step);
+							check_CUDA_Error("MOVEMENTS LEFT SUM");
+						}
 						HANDLE_ERROR(cudaMemcpy(movements_left_h, movements_left_d, size_elementos, cudaMemcpyDeviceToHost));
 						ia_score[i] = (sum_gaps_h[0]?1:0)* (movements_performed_h[0]?1:0) * ((sum_gaps_h[0]?sum_gaps_h[0]:1) + sum_points_h[0]*2);
 						//BORRAR LO USADO
-						setValue << <1, n_elementos, 0 >> > (sum_points_d, n_elementos, 0);
-						setValue << <1, n_elementos, 0 >> > (movements_performed_d,n_elementos, 0);
-						setValue << <1, n_elementos, 0 >> > (sum_gaps_d, n_elementos, 0);
-						setValue << <1, n_elementos, 0 >> > (movements_left_aux_d, n_elementos, 0);
-						setValue << <1, n_elementos, 0 >> > (movements_left_d, n_elementos, 0); 
-						setValue << <1, n_elementos, 0 >> > (ia_decisions_d, n_elementos, 0);
+						setValue << <dimGrid, dimBlock, 0 >> > (sum_points_d, n_elementos, n_columnas, n_filas, 0);
+						setValue << <dimGrid, dimBlock, 0 >> > (movements_performed_d, n_elementos, n_columnas, n_filas, 0);
+						setValue << <dimGrid, dimBlock, 0 >> > (sum_gaps_d, n_elementos, n_columnas, n_filas, 0);
+						setValue << <dimGrid, dimBlock, 0 >> > (movements_left_aux_d, n_elementos, n_columnas, n_filas, 0);
+						setValue << <dimGrid, dimBlock, 0 >> > (movements_left_d, n_elementos, n_columnas, n_filas, 0);
+						setValue << <dimGrid, dimBlock, 0 >> > (ia_decisions_d, n_elementos, n_columnas, n_filas, 0);
 						check_CUDA_Error("SET 0");
 					}
 					//ELEGIR EL MEJOR MOVIENTO
@@ -859,56 +879,98 @@ int main(int argc, char **argv) {
 					}	
 				}
 			}
-			cpyMatrix << <1, n_elementos, 0 >> > (tablero_d, tablero_cpy_d, n_elementos);
+			cpyMatrix << <dimGrid, dimBlock, 0 >> > (tablero_d, tablero_cpy_d, n_elementos, n_columnas, n_filas);
 			check_CUDA_Error("COPIA TABLERO");
 			switch (movement_to_perform) {//REALIZAR EL MOVIMENTO
 				case KEY_UP:
-					takeDecisionsV << <1, n_elementos, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas);
+					takeDecisionsV << <dimGrid, dimBlock, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("DECISIONES V");
-					cpyMatrix << <1, n_elementos, 0 >> > (decisions_d, decisions_cpy_d, n_elementos);
-					check_CUDA_Error("CPIA DECISIONES");
-					moveV << <1, n_elementos, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas, n_filas);
-					check_CUDA_Error("MOVE V");
+					cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
+					check_CUDA_Error("COPIA DECISIONES");
+					for (int e = 0; e < n_columnas; ++e) {
+						setValue << <dimGrid, dimBlock, 0 >> > (movements_aux_d, n_elementos, n_columnas, n_filas, 0);
+						check_CUDA_Error("SET 0");
+						setValue << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, n_elementos, n_columnas, n_filas, 0);
+						check_CUDA_Error("SET 0");
+						moveV << <dimGrid, dimBlock, 0 >> > (tablero_d, movements_aux_d, decisions_d, decisions_aux_d, n_elementos, n_columnas, n_filas);
+						check_CUDA_Error("MOVE V");
+						cpyMatrix << <dimGrid, dimBlock, 0 >> > (movements_aux_d, tablero_d, n_elementos, n_columnas, n_filas);
+						check_CUDA_Error("CPY");
+						cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, decisions_d, n_elementos, n_columnas, n_filas);
+						check_CUDA_Error("CPY");
+					}
 					break;
 				case KEY_LEFT:
-					takeDecisionsH << <1, n_elementos, 1 >> > (tablero_d, decisions_d, n_elementos, n_columnas);
+					takeDecisionsH << <dimGrid, dimBlock, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas, n_elementos);
 					check_CUDA_Error("DECISIONES H");
-					cpyMatrix << <1, n_elementos, 0 >> > (decisions_d, decisions_cpy_d, n_elementos);
-					check_CUDA_Error("CPIA DECISIONES");
-					moveH << <1, n_elementos, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas);
-					check_CUDA_Error("MOVE H");
+					cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
+					check_CUDA_Error("COPIA DECISIONES");
+					for (int e = 0; e < n_columnas; ++e) {
+						setValue << <dimGrid, dimBlock, 0 >> > (movements_aux_d, n_elementos, n_columnas, n_filas, 0);
+						check_CUDA_Error("SET 0");
+						setValue << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, n_elementos, n_columnas, n_filas, 0);
+						check_CUDA_Error("SET 0");
+						moveH << <dimGrid, dimBlock, 0 >> > (tablero_d, movements_aux_d, decisions_d, decisions_aux_d, n_elementos, n_columnas, n_filas);
+						check_CUDA_Error("MOVE H");
+						cpyMatrix << <dimGrid, dimBlock, 0 >> > (movements_aux_d, tablero_d, n_elementos, n_columnas, n_filas);
+						check_CUDA_Error("CPY");
+						cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, decisions_d, n_elementos, n_columnas, n_filas);
+						check_CUDA_Error("CPY");
+					}
 					break;
 				case KEY_DOWN:
-					flipV << <1, n_elementos, 0 >> > (tablero_d, n_elementos, n_columnas, n_filas);
+					flipV << <dimGrid, dimBlock, 0 >> > (tablero_d, flip_aux_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("FILIP V");
-					takeDecisionsV << <1, n_elementos, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas);
+					takeDecisionsV << <dimGrid, dimBlock, 0 >> > (flip_aux_d, decisions_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("DECISIONES V");
-					cpyMatrix << <1, n_elementos, 0 >> > (decisions_d, decisions_cpy_d, n_elementos);
-					check_CUDA_Error("CPIA DECISIONES");
-					moveV << <1, n_elementos, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas, n_filas);
-					check_CUDA_Error("MOVE V");
-					flipV << <1, n_elementos, 0 >> > (tablero_d, n_elementos, n_columnas, n_filas);
+					cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
+					check_CUDA_Error("COPIA DECISIONES");
+					for (int e = 0; e < n_columnas; ++e) {
+						setValue << <dimGrid, dimBlock, 0 >> > (movements_aux_d, n_elementos, n_columnas, n_filas, 0);
+						check_CUDA_Error("SET 0");
+						setValue << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, n_elementos, n_columnas, n_filas, 0);
+						check_CUDA_Error("SET 0");
+						moveV << <dimGrid, dimBlock, 0 >> > (flip_aux_d, movements_aux_d, decisions_d, decisions_aux_d, n_elementos, n_columnas, n_filas);
+						check_CUDA_Error("MOVE V");
+						cpyMatrix << <dimGrid, dimBlock, 0 >> > (movements_aux_d, flip_aux_d, n_elementos, n_columnas, n_filas);
+						check_CUDA_Error("CPY");
+						cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, decisions_d, n_elementos, n_columnas, n_filas);
+						check_CUDA_Error("CPY");
+					}
+					flipV << <dimGrid, dimBlock, 0 >> > (flip_aux_d, tablero_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("FILIP V");
 					break;
 				case KEY_RIGHT:
-					flipH << <dimGrid, dimBlock, 0 >> > (tablero_d, n_elementos, n_columnas, n_filas);
+					flipH << <dimGrid, dimBlock, 0 >> > (tablero_d, flip_aux_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("FILIP H");
-					takeDecisionsH << <1, n_elementos, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas);
+					takeDecisionsH << <dimGrid, dimBlock, 0 >> > (flip_aux_d, decisions_d, n_elementos, n_columnas, n_elementos);
 					check_CUDA_Error("DECISIONES H");
-					cpyMatrix << <1, n_elementos, 0 >> > (decisions_d, decisions_cpy_d, n_elementos);
-					check_CUDA_Error("CPIA DECISIONES");
-					moveH << <1, n_elementos, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas);
-					check_CUDA_Error("MOVE H");
-					flipH << <dimGrid, dimBlock, 0 >> > (tablero_d, n_elementos, n_columnas, n_filas);
+					cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
+					check_CUDA_Error("COPIA DECISIONES");
+					for (int e = 0; e < n_columnas; ++e) {
+						setValue << <dimGrid, dimBlock, 0 >> > (movements_aux_d, n_elementos, n_columnas, n_filas, 0);
+						check_CUDA_Error("SET 0");
+						setValue << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, n_elementos, n_columnas, n_filas, 0);
+						check_CUDA_Error("SET 0");
+						moveH << <dimGrid, dimBlock, 0 >> > (flip_aux_d, movements_aux_d, decisions_d, decisions_aux_d, n_elementos, n_columnas, n_filas);
+						check_CUDA_Error("MOVE H");
+						cpyMatrix << <dimGrid, dimBlock, 0 >> > (movements_aux_d, flip_aux_d, n_elementos, n_columnas, n_filas);
+						check_CUDA_Error("CPY");
+						cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_aux_d, decisions_d, n_elementos, n_columnas, n_filas);
+						check_CUDA_Error("CPY");
+					}
+					flipH << <dimGrid, dimBlock, 0 >> > (flip_aux_d, tablero_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("FILIP H");
 					break;
 			}
 			check_CUDA_Error("MOVER");	
 			//EVALUR SI EL MOVIENTO HA PRODUCIDO UN CAMBIO EN LA MATRIZ
-			hasChanged << <1, n_elementos, 0 >>>(tablero_d, tablero_cpy_d, n_elementos);
+			hasChanged << <dimGrid, dimBlock, 0 >>>(tablero_d, tablero_cpy_d, n_elementos, n_columnas, n_filas);
 			check_CUDA_Error("HAS CHANGED");
-			sumGaps << <1, n_elementos, 0 >> > (tablero_cpy_d, movements_performed_d, n_elementos, max_recursion);
-			check_CUDA_Error("SUM GAPS");
+			for (int step = 0; step < max_recursion; ++step) {
+				sumGaps << <dimGrid, dimBlock, 0 >> > (tablero_cpy_d, movements_performed_d, n_elementos, n_columnas, n_filas, step);
+				check_CUDA_Error("SUM GAPS");
+			}
 			HANDLE_ERROR(cudaMemcpy(movements_performed_h, movements_performed_d, size_elementos, cudaMemcpyDeviceToHost));
 			if (movements_performed_h[0]) {
 				//AÑADIR NUEVAS CASILLAS AL TABLERO DE FORMA ALEATORIA
@@ -916,17 +978,27 @@ int main(int argc, char **argv) {
 				addRandom<float>(tablero_h, elementos_iniciales, n_elementos);
 				HANDLE_ERROR(cudaMemcpy(tablero_d, tablero_h, size_elementos, cudaMemcpyHostToDevice));
 				//SUMA HUECOS
-				sumGaps << <1, n_elementos, 0 >> > (tablero_d, sum_gaps_d, n_elementos, max_recursion);
-				check_CUDA_Error("SUMA HUECOS");
+				for (int step = 0; step < max_recursion; ++step) {
+					sumGaps << <dimGrid, dimBlock, 0 >> > (tablero_d, sum_gaps_d, n_elementos, n_columnas, n_filas, step);
+					check_CUDA_Error("SUMA HUECOS");
+				}
 				HANDLE_ERROR(cudaMemcpy(sum_gaps_h, sum_gaps_d, size_elementos, cudaMemcpyDeviceToHost));
 				//QUEDAN MOVIMIENTOS?
-				sumLeft << <1, n_elementos, 0 >> > (tablero_d, movements_left_aux_d, n_elementos, n_columnas, n_filas);
+				sumLeft << <dimGrid, dimBlock, 0 >> > (tablero_d, movements_left_aux_d, n_elementos, n_columnas, n_filas);
 				check_CUDA_Error("MOVEMENTS LEFT AUX");
-				sumMovements << <1, n_elementos, 0 >> > (movements_left_aux_d, movements_left_d, n_elementos, max_recursion);
-				check_CUDA_Error("MOVEMENTS LEFT SUM");
+				for (int step = 0; step < max_recursion; ++step) {
+					sumMovements << <dimGrid, dimBlock, 0 >> > (movements_left_aux_d, movements_left_d, n_elementos, n_columnas, n_filas, step);
+					check_CUDA_Error("MOVEMENTS LEFT SUM");
+				}
 				HANDLE_ERROR(cudaMemcpy(movements_left_h, movements_left_d, size_elementos, cudaMemcpyDeviceToHost));
 				if ((sum_gaps_h[0] <= 0) && (movements_left_h[0] <= 0)) {//No quedan movimentos
 					--lives;
+					system("cls");//BORRADO DE LA PANTALLA
+					std::cout << sidebar << std::endl;
+					std::cout << "Round: " << round << spaces << "Lives :" << lives << std::endl;
+					std::cout << "Score: " << score[lives - 1] << std::endl;
+					std::cout << sidebar << std::endl;
+					std::cout << printTablero<float>(tablero_h, n_columnas, n_filas) << std::endl;
 					std::cout << sidebar << std::endl;
 					std::cout << "Lives:" << lives << std::endl;
 					std::cout << "TotalScore: " << sumArray(score, LIVES) << std::endl;
@@ -939,8 +1011,10 @@ int main(int argc, char **argv) {
 						++round;
 						move_done = true;
 						//SUMAR PUNTOS
-						sumPoints << <1, n_elementos, 0 >> > (decisions_cpy_d, sum_points_d, n_elementos, max_recursion);
-						check_CUDA_Error("SUMA PUNTOS");
+						for (int step = 0; step < max_recursion; ++step) {
+							sumPoints << <dimGrid, dimBlock, 0 >> > (decisions_cpy_d, sum_points_d, n_elementos, n_columnas, n_filas, step);
+							check_CUDA_Error("SUMA PUNTOS");
+						}
 						HANDLE_ERROR(cudaMemcpy(sum_points_h, sum_points_d, size_elementos, cudaMemcpyDeviceToHost));
 						score[lives - 1] += static_cast<int>(sum_points_h[0]);
 				}
@@ -1013,6 +1087,9 @@ int main(int argc, char **argv) {
 				free(decisions_cpy_h);
 				free(ia_tablero_h);
 				free(ia_decisions_h);
+				free(flip_aux_h);
+				free(movements_aux_h);
+				free(decisions_aux_h);
 				HANDLE_ERROR(cudaFree(tablero_d));
 				HANDLE_ERROR(cudaFree(decisions_d));
 				HANDLE_ERROR(cudaFree(sum_points_d));
@@ -1024,6 +1101,9 @@ int main(int argc, char **argv) {
 				HANDLE_ERROR(cudaFree(decisions_cpy_d));
 				HANDLE_ERROR(cudaFree(ia_tablero_d));
 				HANDLE_ERROR(cudaFree(ia_decisions_d));
+				HANDLE_ERROR(cudaFree(flip_aux_d));
+				HANDLE_ERROR(cudaFree(movements_aux_d));
+				HANDLE_ERROR(cudaFree(decisions_aux_d));
 				//Actualización de tamaños de los vectores
 				tablero_h = (float*)malloc(size_elementos);
 				decisions_h = (float*)malloc(size_elementos);
@@ -1036,6 +1116,9 @@ int main(int argc, char **argv) {
 				decisions_cpy_h = (float*)malloc(size_elementos);
 				ia_tablero_h = (float*)malloc(size_elementos);
 				ia_decisions_h = (float*)malloc(size_elementos);
+				flip_aux_h = (float*)malloc(size_elementos);
+				movements_aux_h = (float*)malloc(size_elementos);
+				decisions_aux_h = (float*)malloc(size_elementos);
 				HANDLE_ERROR(cudaMalloc((void **)&tablero_d, size_elementos));
 				HANDLE_ERROR(cudaMalloc((void **)&decisions_d, size_elementos));
 				HANDLE_ERROR(cudaMalloc((void **)&sum_points_d, size_elementos));
@@ -1047,6 +1130,9 @@ int main(int argc, char **argv) {
 				HANDLE_ERROR(cudaMalloc((void **)&decisions_cpy_d, size_elementos));
 				HANDLE_ERROR(cudaMalloc((void **)&ia_tablero_d, size_elementos));
 				HANDLE_ERROR(cudaMalloc((void **)&ia_decisions_d, size_elementos));
+				HANDLE_ERROR(cudaMalloc((void **)&flip_aux_d, size_elementos));
+				HANDLE_ERROR(cudaMalloc((void **)&movements_aux_d, size_elementos));
+				HANDLE_ERROR(cudaMalloc((void **)&decisions_aux_d, size_elementos));
 				memset(tablero_h, 0, size_elementos);
 				memset(decisions_h, 0, size_elementos);
 				memset(sum_points_h, 0, size_elementos);
@@ -1058,11 +1144,37 @@ int main(int argc, char **argv) {
 				memset(decisions_cpy_h, 0, size_elementos);
 				memset(ia_tablero_h, 0, size_elementos);
 				memset(ia_decisions_h, 0, size_elementos);
+				memset(flip_aux_h, 0, size_elementos);
+				memset(movements_aux_h, 0, size_elementos);
+				memset(decisions_aux_h, 0, size_elementos);
 				sidebar = replicateString("\xC4", static_cast<int>(n_columnas)*6+1);
 				spaces = replicateString(" ", n_columnas);
 				//Carga los datos del nuevo tablero
 				for (int i = 0; i < n_elementos; ++i) {
 					in >> tablero_h[i];
+				}
+				if (SCALE) {
+					if (n_elementos <= 16) {
+						font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {40,58},FF_DONTCARE,FW_NORMAL };
+					}
+					else if (n_elementos <= 64) {
+						font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {24,32},FF_DONTCARE,FW_NORMAL };
+					}
+					else if (n_elementos <= 256) {
+						font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {12,20},FF_DONTCARE,FW_NORMAL };
+					}
+					else if (n_elementos <= 1024) {
+						font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {8,14},FF_DONTCARE,FW_NORMAL };
+					}
+					else if (n_elementos <= 3200) {
+						font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {6,9},FF_DONTCARE,FW_NORMAL };
+					}
+					else {
+						font = CONSOLE_FONT_INFOEX{ sizeof(CONSOLE_FONT_INFOEX),0, COORD {4,6},FF_DONTCARE,FW_NORMAL };
+					}
+					SetCurrentConsoleFontEx(GetStdHandle(STD_OUTPUT_HANDLE), true, &font); //Control de la fuente
+					ShowWindow(GetConsoleWindow(), SW_RESTORE);//Consola en pantalla completa
+					ShowWindow(GetConsoleWindow(), SW_MAXIMIZE);//Consola en pantalla completa
 				}
 				//Datos de inicio de nueva partida
 				system("cls");
@@ -1075,6 +1187,12 @@ int main(int argc, char **argv) {
 				std::cout << sidebar << std::endl;
 				std::cout << printTablero(tablero_h, n_columnas, n_filas) << std::endl;
 				std::cout << sidebar << std::endl;
+				if (n_elementos > (prop.maxThreadsPerBlock*prop.maxThreadsPerMultiProcessor*prop.multiProcessorCount)) {
+					std::cout << "La matriz es demasiado grande!!!" << std::endl;
+					std::cout << "Press any key to continue" << std::endl;
+					getch();
+					exit(-1);
+				}
 				std::cout << "Matriz cargada, puede seguir jugando" << std::endl;
 				std::cout << sidebar << std::endl;
 			} else {
@@ -1093,6 +1211,9 @@ int main(int argc, char **argv) {
 		memset(decisions_cpy_h, 0, size_elementos);
 		memset(ia_tablero_h, 0, size_elementos);
 		memset(ia_decisions_h, 0, size_elementos);
+		memset(flip_aux_h, 0, size_elementos);
+		memset(movements_aux_h, 0, size_elementos);
+		memset(decisions_aux_h, 0, size_elementos);
 	} while (movement_to_perform!='e' && (lives > 0));
 	//PUNTUACION DE TODAS LAS PARTIDAS
 	int total_score = 0;
@@ -1135,6 +1256,9 @@ int main(int argc, char **argv) {
 	free(decisions_cpy_h);
 	free(ia_tablero_h);
 	free(ia_decisions_h);
+	free(flip_aux_h);
+	free(movements_aux_h);
+	free(decisions_aux_h);
 	HANDLE_ERROR(cudaFree(tablero_d));
 	HANDLE_ERROR(cudaFree(decisions_d));
 	HANDLE_ERROR(cudaFree(sum_points_d));
@@ -1146,6 +1270,9 @@ int main(int argc, char **argv) {
 	HANDLE_ERROR(cudaFree(decisions_cpy_d));
 	HANDLE_ERROR(cudaFree(ia_tablero_d));
 	HANDLE_ERROR(cudaFree(ia_decisions_d));
+	HANDLE_ERROR(cudaFree(flip_aux_d));
+	HANDLE_ERROR(cudaFree(movements_aux_d));
+	HANDLE_ERROR(cudaFree(decisions_aux_d));
 	getch(); //Para evitar que se cierre la ventana
 	return(0);
 }
