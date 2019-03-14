@@ -29,20 +29,20 @@
 #define SCALE 1
 //COLORES
 #define RESET "\033[0m"
-#define Red "\033[1;31m"      
-#define Green "\033[1;32m"    
-#define Yellow "\033[1;33m"   
-#define Blue "\033[1;34m"     
-#define Purple "\033[1;35m"   
-#define Cyan "\033[1;36m"     
-#define IRed "\033[1;91m"     
-#define IGreen "\033[1;92m"   
-#define IYellow "\033[1;93m"  
-#define IBlue "\033[1;94m"    
-#define IPurple "\033[1;95m"  
-#define ICyan "\033[1;96m"    
-#define White "\033[1;37m" 
-#define IWhite "\033[1;97m" 
+#define IRed "\033[0;101m"      
+#define IGreen "\033[0;102m"    
+#define IYellow "\033[0;103m"   
+#define IBlue "\033[0;104m"     
+#define IPurple "\033[0;105m"   
+#define ICyan "\033[0;106m"     
+#define Red "\033[1;91m"     
+#define Green "\033[1;92m"   
+#define Yellow "\033[1;93m"  
+#define Blue "\033[1;94m"    
+#define Purple "\033[1;95m"  
+#define Cyan "\033[1;96m"    
+#define IWhite "\033[0;107m" 
+#define White "\033[1;97m" 
 
 /*
 OUTPUT FORMATER
@@ -487,6 +487,7 @@ __host__ std::string printTablero(T *tablero, int n_columnas, int n_filas) {
 		for (int j = 0; j < n_columnas; j++) {
 			int num = static_cast<int>(tablero[i*n_columnas + j]);
 			switch (num) {
+			case 0: {ss << White; break; }
 			case 2: {ss << Red; break; }
 			case 4: {ss << Green; break; }
 			case 8: {ss << Yellow; break; }
@@ -499,7 +500,7 @@ __host__ std::string printTablero(T *tablero, int n_columnas, int n_filas) {
 			case 1024: {ss << IBlue; break; }
 			case 2048: {ss << IPurple; break; }
 			case 4096: {ss << ICyan; break; }
-			case 8192: {ss << White; break; }
+			case 8192: {ss << IsWhite; break; }
 			default: {ss << IWhite; break; }
 			}
 			ss << std::setw(5) << centered(num == 0 ? "" : std::to_string(num)) << RESET << "\xBA";

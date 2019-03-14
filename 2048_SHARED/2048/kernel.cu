@@ -84,12 +84,17 @@ La matriz es tanto de entrada como de salida
 Se utiliza para hacer el movimiento horizonal a la derecha
 */
 __global__ void flipH (float *tablero, float *flip, int size, int nc, int nf) {
+	extern __shared__ float tablero_flipH[];
 	int col = threadIdx.x + blockIdx.x * blockDim.x;
 	int row = threadIdx.y + blockIdx.y * blockDim.y;
 	int id = col + row * nc;
 	int look = (nc - col - 1) + row * nc;
 	if ((id < size) && (look < size) && (col < nc) && (row < nf)) {
-		flip[id] = tablero[look];
+		tablero_flipH[threadIdx.x + threadIdx.y * nc] = tablero[look];
+	}
+	__syncthreads();
+	if ((id < size) && (look < size) && (col < nc) && (row < nf)) {
+		flip[id] = tablero_flipH[threadIdx.x + threadIdx.y * nc];
 	}
 }
 /*
@@ -98,12 +103,17 @@ La matriz es tanto de entrada como de salida
 Se utiliza para hacer el movimiento vertical hacia abajo
 */
 __global__ void flipV(float *tablero, float *flip, int size, int nc, int nf) {
+	extern __shared__ float tablero_flipV[];
 	int col = threadIdx.x + blockIdx.x * blockDim.x;
 	int row = threadIdx.y + blockIdx.y * blockDim.y;
 	int id = col + row * nc;
 	int look = col + (nf - row - 1) * nc;
 	if ((id < size) && (look < size) && (col < nc) && (row < nf)) {
-		flip[id] = tablero[look];
+		tablero_flipV[threadIdx.x + threadIdx.y * nc] = tablero[look];
+	}
+	__syncthreads();
+	if ((id < size) && (look < size) && (col < nc) && (row < nf)) {
+		flip[id] = tablero_flipV[threadIdx.x + threadIdx.y * nc];
 	}
 }
 
@@ -191,6 +201,7 @@ Pone un uno en aquellas casillas que de deban borrar para realizar un movimiento
 indique la matriz de decisiones
 */
 __global__ void createDeleterH(float *tablero, float *decisions, float *out, int size, int nc, int nf) {
+	extern __shared__ int d[];
 	int col = threadIdx.x + blockIdx.x * blockDim.x;
 	int row = threadIdx.y + blockIdx.y * blockDim.y;
 	int id = col + row * nc;
@@ -200,7 +211,6 @@ __global__ void createDeleterH(float *tablero, float *decisions, float *out, int
 			while (!tablero[id - i]) {
 				++i;
 			}
-			//printf("id: %d,def: %d", id, id-i);
 			out[id - i] = 1;
 		}
 	}
@@ -333,22 +343,27 @@ Sumando el resultado de todos los unos sabremos si se pueden hacer movientos o n
 Cada hilo mira a sus cuatro elementos de los lados y al suyo
 */
 __global__ void  sumLeft(float* tablero, float* result,int size, int nc, int nf) {
+	extern __shared__ float tablero_sumLeft[];
 	int col = threadIdx.x + blockIdx.x * blockDim.x;
 	int row = threadIdx.y + blockIdx.y * blockDim.y;
 	int id = col + row * nc;
 	if ((id < size) && (col < nc) && (row < nf)) {
+		tablero_sumLeft[threadIdx.x + threadIdx.y * nc] = tablero[id];
+	}
+	__syncthreads();
+	if ((id < size) && (col < nc) && (row < nf)) {
 		result[id] = 0;
-		if (tablero[id]) {
-			if (((col + 1) < nc) && (tablero[id] == tablero[id + 1])) {
+		if (tablero_sumLeft[threadIdx.x + threadIdx.y * nc]) {
+			if (((col + 1) < nc) && (tablero_sumLeft[threadIdx.x + threadIdx.y * nc] == tablero[id + 1])) {
 				result[id] = 1;
 			}
-			if (((col - 1) > 0) && (tablero[id] == tablero[id - 1])) {
+			if (((col - 1) > 0) && (tablero_sumLeft[threadIdx.x + threadIdx.y * nc] == tablero[id - 1])) {
 				result[id] = 1;
 			}
-			if (((row + 1) < nf) && (tablero[id] == tablero[id + nc])) {
+			if (((row + 1) < nf) && (tablero_sumLeft[threadIdx.x + threadIdx.y * nc] == tablero[id + nc])) {
 				result[id] = 1;
 			}
-			if (((row - 1) > 0) && (tablero[id] == tablero[id - nc])) {
+			if (((row - 1) > 0) && (tablero_sumLeft[threadIdx.x + threadIdx.y * nc] == tablero[id - nc])) {
 				result[id] = 1;
 			}
 		}
@@ -361,12 +376,19 @@ Utiliza el método de reducción binaria
 Utilizada para contar los puntos que se ganan con un mviento
 */
 __global__ void sumPoints(float *decisions, float *sum_result, int size, int nc, int nf, int step) {
+	extern __shared__ float decisions_sumPoints[];
 	int col = threadIdx.x + blockIdx.x * blockDim.x;
 	int row = threadIdx.y + blockIdx.y * blockDim.y;
 	int id = col + row * nc;
-	if (step == 0){
+	if (step == 0) {
 		if ((id < size) && (col < nc) && (row < nf)) {
-			sum_result[id] = decisions[id];
+			decisions_sumPoints[threadIdx.x + threadIdx.y * nc] = decisions[id];
+		}
+	}
+	__syncthreads();
+	if (step == 0) {
+		if ((id < size) && (col < nc) && (row < nf)) {
+			sum_result[id] = decisions_sumPoints[threadIdx.x + threadIdx.y * nc];
 		}
 	}
 	int active_thread = powf(2, step + 1);
@@ -386,12 +408,19 @@ Cuenta los elementos idénticos a 0 en una matriz
 Se utiliza para saber cuantos huecos quedan en el tablero
 */
 __global__ void sumGaps(float *decisions, float *sum_result, int size, int nc, int nf, int step) {
+	extern __shared__ float decisions_sumGap[];
 	int col = threadIdx.x + blockIdx.x * blockDim.x;
 	int row = threadIdx.y + blockIdx.y * blockDim.y;
 	int id = col + row * nc;
 	if (step == 0) {
 		if ((id < size) && (col < nc) && (row < nf)) {
-			sum_result[id] = (float)(decisions[id] == 0.0f);
+			decisions_sumGap[threadIdx.x + threadIdx.y * nc] = decisions[id];
+		}
+	}
+	__syncthreads();
+	if (step == 0) {
+		if ((id < size) && (col < nc) && (row < nf)) {
+			sum_result[id] = (float)(decisions_sumGap[threadIdx.x + threadIdx.y * nc] == 0.0f);
 		}
 	}
 	int active_thread = powf(2, step + 1);
@@ -411,12 +440,19 @@ Cuenta la cantidad de elementos distintos de 0 que hay en una matriz
 Se utiliza para saber si un moviento realiza cambios sobre el tablero
 */
 __global__ void sumMovements(float *decisions, float *sum_result, int size, int nc, int nf, int step) {
+	extern __shared__ float decisions_sumMovements[];
 	int col = threadIdx.x + blockIdx.x * blockDim.x;
 	int row = threadIdx.y + blockIdx.y * blockDim.y;
 	int id = col + row * nc;
 	if (step == 0) {
 		if ((id < size) && (col < nc) && (row < nf)) {
-			sum_result[id] = (float)(decisions[id] != 0.0f);
+			decisions_sumMovements[threadIdx.x + threadIdx.y * nc] = decisions[id];
+		}
+	}
+	__syncthreads();
+	if (step == 0) {
+		if ((id < size) && (col < nc) && (row < nf)) {
+			sum_result[id] = (float)(decisions_sumMovements[threadIdx.x + threadIdx.y * nc] != 0.0f);
 		}
 	}
 	int active_thread = powf(2, step + 1);
@@ -437,11 +473,16 @@ Se utiliza para no perder la matriz de decisiones al hacer un movimiento y
 para guardar el tablero y comprobar si despés de un moviento ha cambiado
 */
 __global__ void cpyMatrix(float *matriz, float *copia, int size, int nc, int nf) {
+	extern __shared__ float mcpyMatrix[];
 	int col = threadIdx.x + blockIdx.x * blockDim.x;
 	int row = threadIdx.y + blockIdx.y * blockDim.y;
 	int id = col + row * nc;
 	if ((id < size) && (col < nc) && (row < nf)) {
-		copia[id] = matriz[id];
+		mcpyMatrix[threadIdx.x + threadIdx.y * nc] = matriz[id];
+	}
+	__syncthreads();
+	if ((id < size) && (col < nc) && (row < nf)) {
+		copia[id] = mcpyMatrix[threadIdx.x + threadIdx.y * nc];
 	}
 }
 
@@ -450,12 +491,17 @@ Comprueba si la matriz primera es igual a la segunada y pone el resultado en la 
 Se utiliza para saber si el tablero ha cambiado
 */
 __global__ void hasChanged (float *matriz, float *copia, int size, int nc, int nf) {
+	extern __shared__ float hasChanged_matriz[];
 	int col = threadIdx.x + blockIdx.x * blockDim.x;
 	int row = threadIdx.y + blockIdx.y * blockDim.y;
 	int id = col + row * nc;
 	float resultado = 0;
 	if ((id < size) && (col < nc) && (row < nf)) {
-		resultado = (matriz[id] == copia[id]);
+		hasChanged_matriz[threadIdx.x + threadIdx.y * nc] = matriz[id];
+	}
+	__syncthreads();
+	if ((id < size) && (col < nc) && (row < nf)) {
+		resultado = (hasChanged_matriz[threadIdx.x + threadIdx.y * nc] == copia[id]);
 		copia[id] = resultado;
 	}
 }
@@ -995,86 +1041,86 @@ int main(int argc, char **argv) {
 					}	
 				}
 			}
-			cpyMatrix << <dimGrid, dimBlock, 0 >> > (tablero_d, tablero_cpy_d, n_elementos, n_columnas, n_filas);
+			cpyMatrix << <dimGrid, dimBlock, n_elementos * sizeof(float)>> > (tablero_d, tablero_cpy_d, n_elementos, n_columnas, n_filas);
 			check_CUDA_Error("COPIA TABLERO");
 			switch (movement_to_perform) {//REALIZAR EL MOVIMENTO
 				case KEY_UP:
-					takeDecisionsV << <dimGrid, dimBlock, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas, n_filas);
+					takeDecisionsV << <dimGrid, dimBlock, n_elementos*sizeof(float) >> > (tablero_d, decisions_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("DECISIONES V");
-					cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
+					cpyMatrix << <dimGrid, dimBlock, n_elementos*sizeof(float)>> > (decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("COPIA DECISIONES");
-					setValue << <dimGrid, dimBlock, 0 >> > (jumps_d, n_elementos, n_columnas, n_filas, 0);
-					setValue << <dimGrid, dimBlock, 0 >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
-					setValue << <dimGrid, dimBlock, 0 >> > (delete_mask_d, n_elementos, n_columnas, n_filas, 0);
-					createDeleterV << <dimGrid, dimBlock, 0 >> > (tablero_d, decisions_d, delete_mask_d, n_elementos, n_columnas, n_filas);
-					deleteValues << <dimGrid, dimBlock, 0 >> > (tablero_d, delete_mask_d, decisions_d, n_elementos, n_columnas, n_filas);
-					zeroCountV << <dimGrid, dimBlock, 0 >> > (tablero_d, jumps_d, n_elementos, n_columnas, n_filas);
-					setValue << <dimGrid, dimBlock, 0 >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
-					moveV << <dimGrid, dimBlock, 0 >> > (tablero_d, jumps_d, tablero_aux_d, n_elementos, n_columnas, n_filas);
-					cpyMatrix << <dimGrid, dimBlock, 0 >> > (tablero_aux_d, tablero_d, n_elementos, n_columnas, n_filas);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (jumps_d, n_elementos, n_columnas, n_filas, 0);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (delete_mask_d, n_elementos, n_columnas, n_filas, 0);
+					createDeleterV << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_d, decisions_d, delete_mask_d, n_elementos, n_columnas, n_filas);
+					deleteValues << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_d, delete_mask_d, decisions_d, n_elementos, n_columnas, n_filas);
+					zeroCountV << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_d, jumps_d, n_elementos, n_columnas, n_filas);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
+					moveV << <dimGrid, dimBlock, n_elementos * sizeof(float)*2>> > (tablero_d, jumps_d, tablero_aux_d, n_elementos, n_columnas, n_filas);
+					cpyMatrix << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_aux_d, tablero_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("MOVE V");
 					break;
 				case KEY_LEFT:
-					takeDecisionsH << <dimGrid, dimBlock, 0 >> > (tablero_d, decisions_d, n_elementos, n_columnas, n_elementos);
+					takeDecisionsH << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_d, decisions_d, n_elementos, n_columnas, n_elementos);
 					check_CUDA_Error("DECISIONES H");
-					cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
+					cpyMatrix << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("COPIA DECISIONES");
-					setValue << <dimGrid, dimBlock, 0 >> > (jumps_d, n_elementos, n_columnas, n_filas, 0);
-					setValue << <dimGrid, dimBlock, 0 >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
-					setValue << <dimGrid, dimBlock, 0 >> > (delete_mask_d, n_elementos, n_columnas, n_filas, 0);
-					createDeleterH << <dimGrid, dimBlock, 0 >> > (tablero_d, decisions_d, delete_mask_d, n_elementos, n_columnas, n_filas);
-					deleteValues << <dimGrid, dimBlock, 0 >> > (tablero_d, delete_mask_d, decisions_d, n_elementos, n_columnas, n_filas);
-					zeroCountH << <dimGrid, dimBlock, 0 >> > (tablero_d, jumps_d, n_elementos, n_columnas, n_filas);
-					setValue << <dimGrid, dimBlock, 0 >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
-					moveH << <dimGrid, dimBlock, 0 >> > (tablero_d, jumps_d, tablero_aux_d, n_elementos, n_columnas, n_filas);
-					cpyMatrix << <dimGrid, dimBlock, 0 >> > (tablero_aux_d, tablero_d, n_elementos, n_columnas, n_filas);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (jumps_d, n_elementos, n_columnas, n_filas, 0);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (delete_mask_d, n_elementos, n_columnas, n_filas, 0);
+					createDeleterH << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_d, decisions_d, delete_mask_d, n_elementos, n_columnas, n_filas);
+					deleteValues << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_d, delete_mask_d, decisions_d, n_elementos, n_columnas, n_filas);
+					zeroCountH << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_d, jumps_d, n_elementos, n_columnas, n_filas);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
+					moveH << <dimGrid, dimBlock, n_elementos * sizeof(float)*2 >> > (tablero_d, jumps_d, tablero_aux_d, n_elementos, n_columnas, n_filas);
+					cpyMatrix << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_aux_d, tablero_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("MOVE H");
 					break;
 				case KEY_DOWN:
-					flipV << <dimGrid, dimBlock, 0 >> > (tablero_d, flip_aux_d, n_elementos, n_columnas, n_filas);
+					flipV << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_d, flip_aux_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("FILIP V");
-					takeDecisionsV << <dimGrid, dimBlock, 0 >> > (flip_aux_d, decisions_d, n_elementos, n_columnas, n_filas);
+					takeDecisionsV << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (flip_aux_d, decisions_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("DECISIONES V");
-					cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
+					cpyMatrix << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("COPIA DECISIONES");
-					setValue << <dimGrid, dimBlock, 0 >> > (jumps_d, n_elementos, n_columnas, n_filas, 0);
-					setValue << <dimGrid, dimBlock, 0 >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
-					setValue << <dimGrid, dimBlock, 0 >> > (delete_mask_d, n_elementos, n_columnas, n_filas, 0);
-					createDeleterV << <dimGrid, dimBlock, 0 >> > (flip_aux_d, decisions_d, delete_mask_d, n_elementos, n_columnas, n_filas);
-					deleteValues << <dimGrid, dimBlock, 0 >> > (flip_aux_d, delete_mask_d, decisions_d, n_elementos, n_columnas, n_filas);
-					zeroCountV << <dimGrid, dimBlock, 0 >> > (flip_aux_d, jumps_d, n_elementos, n_columnas, n_filas);
-					setValue << <dimGrid, dimBlock, 0 >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
-					moveV << <dimGrid, dimBlock, 0 >> > (flip_aux_d, jumps_d, tablero_aux_d, n_elementos, n_columnas, n_filas);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (jumps_d, n_elementos, n_columnas, n_filas, 0);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (delete_mask_d, n_elementos, n_columnas, n_filas, 0);
+					createDeleterV << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (flip_aux_d, decisions_d, delete_mask_d, n_elementos, n_columnas, n_filas);
+					deleteValues << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (flip_aux_d, delete_mask_d, decisions_d, n_elementos, n_columnas, n_filas);
+					zeroCountV << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (flip_aux_d, jumps_d, n_elementos, n_columnas, n_filas);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) * 2>> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
+					moveV << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (flip_aux_d, jumps_d, tablero_aux_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("MOVE V");
-					flipV << <dimGrid, dimBlock, 0 >> > (tablero_aux_d, tablero_d, n_elementos, n_columnas, n_filas);
+					flipV << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_aux_d, tablero_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("FILIP V");
 					break;
 				case KEY_RIGHT:
-					flipH << <dimGrid, dimBlock, 0 >> > (tablero_d, flip_aux_d, n_elementos, n_columnas, n_filas);
+					flipH << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_d, flip_aux_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("FILIP H");
-					takeDecisionsH << <dimGrid, dimBlock, 0 >> > (flip_aux_d, decisions_d, n_elementos, n_columnas, n_elementos);
+					takeDecisionsH << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (flip_aux_d, decisions_d, n_elementos, n_columnas, n_elementos);
 					check_CUDA_Error("DECISIONES H");
-					cpyMatrix << <dimGrid, dimBlock, 0 >> > (decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
+					cpyMatrix << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (decisions_d, decisions_cpy_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("COPIA DECISIONES");
-					setValue << <dimGrid, dimBlock, 0 >> > (jumps_d, n_elementos, n_columnas, n_filas, 0);
-					setValue << <dimGrid, dimBlock, 0 >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
-					setValue << <dimGrid, dimBlock, 0 >> > (delete_mask_d, n_elementos, n_columnas, n_filas, 0);
-					createDeleterH << <dimGrid, dimBlock, 0 >> > (flip_aux_d, decisions_d, delete_mask_d, n_elementos, n_columnas, n_filas);
-					deleteValues << <dimGrid, dimBlock, 0 >> > (flip_aux_d, delete_mask_d, decisions_d, n_elementos, n_columnas, n_filas);
-					zeroCountH << <dimGrid, dimBlock, 0 >> > (flip_aux_d, jumps_d, n_elementos, n_columnas, n_filas);
-					setValue << <dimGrid, dimBlock, 0 >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
-					moveH << <dimGrid, dimBlock, 0 >> > (flip_aux_d, jumps_d, tablero_aux_d, n_elementos, n_columnas, n_filas);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (jumps_d, n_elementos, n_columnas, n_filas, 0);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (delete_mask_d, n_elementos, n_columnas, n_filas, 0);
+					createDeleterH << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (flip_aux_d, decisions_d, delete_mask_d, n_elementos, n_columnas, n_filas);
+					deleteValues << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (flip_aux_d, delete_mask_d, decisions_d, n_elementos, n_columnas, n_filas);
+					zeroCountH << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (flip_aux_d, jumps_d, n_elementos, n_columnas, n_filas);
+					setValue << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_aux_d, n_elementos, n_columnas, n_filas, 0);
+					moveH << <dimGrid, dimBlock, n_elementos * sizeof(float) * 2>> > (flip_aux_d, jumps_d, tablero_aux_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("MOVE H");
-					flipH << <dimGrid, dimBlock, 0 >> > (tablero_aux_d, tablero_d, n_elementos, n_columnas, n_filas);
+					flipH << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_aux_d, tablero_d, n_elementos, n_columnas, n_filas);
 					check_CUDA_Error("FILIP H");
 					break;
 			}
 			check_CUDA_Error("MOVER");	
 			//EVALUR SI EL MOVIENTO HA PRODUCIDO UN CAMBIO EN LA MATRIZ
-			hasChanged << <dimGrid, dimBlock, 0 >>>(tablero_d, tablero_cpy_d, n_elementos, n_columnas, n_filas);
+			hasChanged << <dimGrid, dimBlock, n_elementos * sizeof(float) >>>(tablero_d, tablero_cpy_d, n_elementos, n_columnas, n_filas);
 			check_CUDA_Error("HAS CHANGED");
 			for (int step = 0; step < max_recursion; ++step) {
-				sumGaps << <dimGrid, dimBlock, 0 >> > (tablero_cpy_d, movements_performed_d, n_elementos, n_columnas, n_filas, step);
+				sumGaps << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_cpy_d, movements_performed_d, n_elementos, n_columnas, n_filas, step);
 				check_CUDA_Error("SUM GAPS");
 			}
 			HANDLE_ERROR(cudaMemcpy(movements_performed_h, movements_performed_d, size_elementos, cudaMemcpyDeviceToHost));
@@ -1085,15 +1131,15 @@ int main(int argc, char **argv) {
 				HANDLE_ERROR(cudaMemcpy(tablero_d, tablero_h, size_elementos, cudaMemcpyHostToDevice));
 				//SUMA HUECOS
 				for (int step = 0; step < max_recursion; ++step) {
-					sumGaps << <dimGrid, dimBlock, 0 >> > (tablero_d, sum_gaps_d, n_elementos, n_columnas, n_filas, step);
+					sumGaps << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_d, sum_gaps_d, n_elementos, n_columnas, n_filas, step);
 					check_CUDA_Error("SUMA HUECOS");
 				}
 				HANDLE_ERROR(cudaMemcpy(sum_gaps_h, sum_gaps_d, size_elementos, cudaMemcpyDeviceToHost));
 				//QUEDAN MOVIMIENTOS?
-				sumLeft << <dimGrid, dimBlock, 0 >> > (tablero_d, movements_left_aux_d, n_elementos, n_columnas, n_filas);
+				sumLeft << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (tablero_d, movements_left_aux_d, n_elementos, n_columnas, n_filas);
 				check_CUDA_Error("MOVEMENTS LEFT AUX");
 				for (int step = 0; step < max_recursion; ++step) {
-					sumMovements << <dimGrid, dimBlock, 0 >> > (movements_left_aux_d, movements_left_d, n_elementos, n_columnas, n_filas, step);
+					sumMovements << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (movements_left_aux_d, movements_left_d, n_elementos, n_columnas, n_filas, step);
 					check_CUDA_Error("MOVEMENTS LEFT SUM");
 				}
 				HANDLE_ERROR(cudaMemcpy(movements_left_h, movements_left_d, size_elementos, cudaMemcpyDeviceToHost));
@@ -1118,7 +1164,7 @@ int main(int argc, char **argv) {
 						move_done = true;
 						//SUMAR PUNTOS
 						for (int step = 0; step < max_recursion; ++step) {
-							sumPoints << <dimGrid, dimBlock, 0 >> > (decisions_cpy_d, sum_points_d, n_elementos, n_columnas, n_filas, step);
+							sumPoints << <dimGrid, dimBlock, n_elementos * sizeof(float) >> > (decisions_cpy_d, sum_points_d, n_elementos, n_columnas, n_filas, step);
 							check_CUDA_Error("SUMA PUNTOS");
 						}
 						HANDLE_ERROR(cudaMemcpy(sum_points_h, sum_points_d, size_elementos, cudaMemcpyDeviceToHost));
